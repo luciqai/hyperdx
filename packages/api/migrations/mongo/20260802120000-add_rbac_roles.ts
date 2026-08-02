@@ -61,18 +61,31 @@ module.exports = {
     const now = new Date();
 
     for (const team of teams) {
-      const docs = SYSTEM_ROLES.map(role => ({
-        team: team._id,
-        name: role.name,
-        description: role.description,
-        isSystem: true,
-        isAdmin: role.isAdmin,
-        permissions: role.permissions,
-        createdAt: now,
-        updatedAt: now,
-      }));
-
-      await db.collection('roles').insertMany(docs);
+      // Upsert rather than insertMany. insertMany would throw E11000 against
+      // the unique {team, name} index whenever roles already exist — which
+      // happens on a re-run after a partial failure (migrate-mongo records no
+      // changelog entry, so the operator is stuck), and whenever the API booted
+      // first and setupTeamDefaults already seeded them.
+      await db.collection('roles').bulkWrite(
+        SYSTEM_ROLES.map(role => ({
+          updateOne: {
+            filter: { team: team._id, name: role.name },
+            update: {
+              $setOnInsert: {
+                team: team._id,
+                name: role.name,
+                description: role.description,
+                isSystem: true,
+                isAdmin: role.isAdmin,
+                permissions: role.permissions,
+                createdAt: now,
+                updatedAt: now,
+              },
+            },
+            upsert: true,
+          },
+        })),
+      );
 
       const admin = await db
         .collection('roles')
@@ -81,9 +94,15 @@ module.exports = {
       // Every existing user becomes an Admin of their own team. Downgrading
       // people is then a deliberate act, rather than something an upgrade
       // does to them silently.
+      //
+      // Only users who have no role yet: on a re-run this must not clobber
+      // assignments an admin has already made since the first run.
       await db
         .collection('users')
-        .updateMany({ team: team._id }, { $set: { role: admin!._id } });
+        .updateMany(
+          { team: team._id, role: { $in: [null, undefined] } },
+          { $set: { role: admin!._id } },
+        );
     }
   },
 

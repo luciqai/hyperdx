@@ -173,11 +173,28 @@ router.post(
         return res.status(401).send('Invalid token');
       }
 
+      // Roles are seeded at team creation, but seed defensively: a team
+      // created before RBAC shipped has none, and a user saved without a role
+      // would fail OPEN as admin (see spec §11.3) — silently making every
+      // invited member a full administrator.
+      const inviteRoles = await seedSystemRoles(teamInvite.teamId);
+      const memberRole = inviteRoles.find(r => r.name === 'Member');
+      if (!memberRole) {
+        logger.error(
+          { teamId: teamInvite.teamId?.toString() },
+          'Team setup aborted: could not resolve the Member role',
+        );
+        return res.redirect(
+          `${config.FRONTEND_REDIRECT_BASE}/join-team?token=${token}&err=500`,
+        );
+      }
+
       (User as any).register(
         new User({
           email: teamInvite.email,
           name: teamInvite.email,
           team: teamInvite.teamId,
+          role: memberRole._id,
         }),
         password,
         async (err: Error, user: any) => {

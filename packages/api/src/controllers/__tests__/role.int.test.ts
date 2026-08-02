@@ -154,4 +154,77 @@ describe('role controller', () => {
     const roles = await getRolesWithCounts(teamId.toString());
     expect(roles.find(r => r.name === 'Admin')!.memberCount).toBe(1);
   });
+
+  // Regression: the guard only counted holders of an isAdmin role. On an
+  // un-migrated team every user is role-less and therefore an effective admin
+  // via the fail-open, so assigning roles one-by-one walked the team to zero
+  // real admins and permanently bricked every requireAdmin route.
+  it('refuses to demote the last effective admin when everyone is role-less', async () => {
+    await seedSystemRoles(teamId);
+    const member = await Role.findOne({ team: teamId, name: 'Member' });
+    const soleUser = await User.create({
+      email: 'roleless@example.com',
+      team: teamId,
+    });
+
+    await expect(
+      assignRole(teamId, soleUser._id.toString(), member!._id.toString()),
+    ).rejects.toBeInstanceOf(RoleConflictError);
+  });
+
+  it('treats a role-less user as an admin when counting remaining admins', async () => {
+    await seedSystemRoles(teamId);
+    const admin = await getAdminRole(teamId);
+    const member = await Role.findOne({ team: teamId, name: 'Member' });
+    const held = await User.create({
+      email: 'held@example.com',
+      team: teamId,
+      role: admin!._id,
+    });
+    // A second, role-less user is also an effective admin, so demoting the
+    // explicit one is safe.
+    await User.create({ email: 'other@example.com', team: teamId });
+
+    await assignRole(teamId, held._id.toString(), member!._id.toString());
+
+    const reloaded = await User.findById(held._id);
+    expect(reloaded!.role!.toString()).toBe(member!._id.toString());
+  });
+
+  it('rejects a duplicate role name with a conflict, not a raw driver error', async () => {
+    await createRole(teamId, {
+      name: 'Duplicated',
+      permissions: SYSTEM_ROLE_PERMISSIONS.Member,
+    });
+
+    await expect(
+      createRole(teamId, {
+        name: 'Duplicated',
+        permissions: SYSTEM_ROLE_PERMISSIONS.Member,
+      }),
+    ).rejects.toBeInstanceOf(RoleConflictError);
+  });
+
+  it('clears dangling role references when a role is deleted', async () => {
+    const role = await createRole(teamId, {
+      name: 'Doomed',
+      permissions: SYSTEM_ROLE_PERMISSIONS.Member,
+    });
+    await deleteRole(teamId, role._id.toString());
+
+    // Simulate the delete/assign race: a user written after the in-use check.
+    const stray = await User.create({
+      email: 'stray@example.com',
+      team: teamId,
+      role: role._id,
+    });
+    const again = await createRole(teamId, {
+      name: 'Doomed2',
+      permissions: SYSTEM_ROLE_PERMISSIONS.Member,
+    });
+    await User.findByIdAndUpdate(stray._id, { role: again._id });
+    await expect(
+      deleteRole(teamId, again._id.toString()),
+    ).rejects.toBeInstanceOf(RoleConflictError);
+  });
 });

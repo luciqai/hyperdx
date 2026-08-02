@@ -44,8 +44,19 @@ function walk(
           declared,
         });
       }
-    } else if (layer.handle?.stack) {
-      walk(layer.handle.stack, `${prefix}${mountPath(layer)}`, out);
+    } else {
+      // A mounted express.Router() keeps its layers on `handle.stack`, but a
+      // mounted Express *application* keeps them on `handle._router.stack`.
+      // Only checking the former silently skips whole sub-apps — the walker
+      // then reports success having seen none of their routes, which is the
+      // exact blind spot this assertion exists to remove.
+      const nested =
+        layer.handle?.stack ??
+        (layer.handle as any)?._router?.stack ??
+        (layer.handle as any)?.router?.stack;
+      if (nested) {
+        walk(nested, `${prefix}${mountPath(layer)}`, out);
+      }
     }
   }
 }

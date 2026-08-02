@@ -75,18 +75,62 @@ export async function getRolesWithCounts(
   }));
 }
 
+/** Mongo duplicate-key. The {team, name} unique index is the only one here. */
+function isDuplicateKey(e: unknown): boolean {
+  return (e as { code?: number })?.code === 11000;
+}
+
 export async function createRole(
   teamId: string | ObjectId,
   input: RoleInput,
 ): Promise<RoleDocument> {
-  // isSystem/isAdmin are never taken from input — that is the escalation guard.
-  return Role.create({
+  try {
+    // isSystem/isAdmin are never taken from input — that is the escalation
+    // guard. Do NOT refactor to `...input`: RoleInputSchema is validated but
+    // not stripped from req.body, so a spread would let those keys through.
+    return await Role.create({
+      team: teamId,
+      name: input.name,
+      description: input.description,
+      permissions: input.permissions,
+      isSystem: false,
+      isAdmin: false,
+    });
+  } catch (e) {
+    if (isDuplicateKey(e)) {
+      throw new RoleConflictError(
+        `A role named "${input.name}" already exists.`,
+      );
+    }
+    throw e;
+  }
+}
+
+/**
+ * Users who can currently reach `requireAdmin`.
+ *
+ * Deliberately counts role-less users: the middleware fails open as admin for
+ * them (see spec §11.3), so they ARE effective admins. Counting only holders
+ * of an isAdmin role would let an operator assign roles one-by-one on an
+ * un-migrated team and silently reach zero real admins — an unrecoverable
+ * lockout, since every admin route then 403s for everyone.
+ */
+async function countEffectiveAdmins(
+  teamId: string | ObjectId,
+  excludeUserId?: ObjectId | string,
+): Promise<number> {
+  const adminRoleIds = (
+    await Role.find({ team: teamId, isAdmin: true }).select('_id').lean()
+  ).map(r => r._id);
+
+  return User.countDocuments({
     team: teamId,
-    name: input.name,
-    description: input.description,
-    permissions: input.permissions,
-    isSystem: false,
-    isAdmin: false,
+    ...(excludeUserId ? { _id: { $ne: excludeUserId } } : {}),
+    $or: [
+      { role: { $in: adminRoleIds } },
+      { role: null },
+      { role: { $exists: false } },
+    ],
   });
 }
 
@@ -106,7 +150,16 @@ export async function updateRole(
   role.name = input.name;
   role.description = input.description;
   role.permissions = input.permissions;
-  await role.save();
+  try {
+    await role.save();
+  } catch (e) {
+    if (isDuplicateKey(e)) {
+      throw new RoleConflictError(
+        `A role named "${input.name}" already exists.`,
+      );
+    }
+    throw e;
+  }
 
   return role;
 }
@@ -131,6 +184,15 @@ export async function deleteRole(
   }
 
   await Role.deleteOne({ _id: roleId, team: teamId });
+
+  // Repair sweep. The in-use check above is check-then-act, so an assignment
+  // racing this delete can leave a user pointing at a deleted role. A dangling
+  // ref populates to null, which the middleware reads as "no role" and fails
+  // OPEN as admin — a delete silently granting privilege. Clear any stragglers.
+  await User.updateMany(
+    { team: teamId, role: roleId },
+    { $unset: { role: '' } },
+  );
 }
 
 export async function assignRole(
@@ -146,49 +208,47 @@ export async function assignRole(
   if (!user) throw new RoleConflictError('User not found');
   if (!nextRole) throw new RoleConflictError('Role not found');
 
-  // Last-admin protection: if this user currently holds an admin role and the
-  // target role does not, refuse unless another admin remains.
-  if (!nextRole.isAdmin && user.role != null) {
-    const currentRole = await Role.findById(user.role);
-    if (currentRole?.isAdmin) {
-      const adminRoleIds = await Role.find({ team: teamId, isAdmin: true })
-        .select('_id')
-        .lean();
-      const remaining = await User.countDocuments({
-        team: teamId,
-        role: { $in: adminRoleIds.map(r => r._id) },
-        _id: { $ne: user._id },
-      });
-      if (remaining === 0) {
-        throw new RoleConflictError(
-          "The last admin can't be changed. Promote someone else first.",
-        );
-      }
+  const previousRoleId = user.role;
+
+  // Last-admin protection. The user being demoted counts as an effective admin
+  // if they hold an isAdmin role OR have no role at all (fail-open), so this
+  // must run for role-less users too — not just holders of an admin role.
+  if (!nextRole.isAdmin) {
+    const remaining = await countEffectiveAdmins(teamId, user._id);
+    if (remaining === 0) {
+      throw new RoleConflictError(
+        "The last admin can't be changed. Promote someone else first.",
+      );
     }
   }
 
   user.role = nextRole._id;
   await user.save();
+
+  // Re-check after the write. Two concurrent demotions can each observe one
+  // other admin remaining and both commit, leaving zero — an unrecoverable
+  // state. Roll this one back if that happened.
+  if (!nextRole.isAdmin && (await countEffectiveAdmins(teamId)) === 0) {
+    user.role = previousRoleId;
+    await user.save();
+    throw new RoleConflictError(
+      "The last admin can't be changed. Promote someone else first.",
+    );
+  }
 }
 
-/** True when removing this user would leave the team with no admin. */
+/**
+ * True when removing this user would leave the team with no effective admin.
+ *
+ * Counts role-less users as admins for the same reason as
+ * `countEffectiveAdmins` — they pass `requireAdmin` via the fail-open.
+ */
 export async function isLastAdmin(
   teamId: string | ObjectId,
   userId: string | ObjectId,
 ): Promise<boolean> {
-  const adminRoleIds = await Role.find({ team: teamId, isAdmin: true })
-    .select('_id')
-    .lean();
-  if (adminRoleIds.length === 0) return false;
-
-  const ids = adminRoleIds.map(r => r._id);
   const user = await User.findOne({ _id: userId, team: teamId });
-  if (!user?.role || !ids.some(id => id.equals(user.role!))) return false;
+  if (!user) return false;
 
-  const remaining = await User.countDocuments({
-    team: teamId,
-    role: { $in: ids },
-    _id: { $ne: userId },
-  });
-  return remaining === 0;
+  return (await countEffectiveAdmins(teamId, userId)) === 0;
 }

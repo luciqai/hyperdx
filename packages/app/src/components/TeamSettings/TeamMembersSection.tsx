@@ -258,14 +258,18 @@ export default function TeamMembersSection() {
         <Card.Section withBorder py="sm" px="lg">
           <Group align="center" justify="space-between">
             <div className="fs-7">Team Members</div>
-            <Button
-              data-testid="invite-member-button"
-              variant="primary"
-              leftSection={<IconUserPlus size={16} />}
-              onClick={() => setTeamInviteModalShow(true)}
-            >
-              Invite Team Member
-            </Button>
+            {/* Inviting is requireAdmin() server-side. Absent, not disabled —
+                the UI must not advertise an action that will 403. */}
+            {hasAdminAccess && (
+              <Button
+                data-testid="invite-member-button"
+                variant="primary"
+                leftSection={<IconUserPlus size={16} />}
+                onClick={() => setTeamInviteModalShow(true)}
+              >
+                Invite Team Member
+              </Button>
+            )}
           </Group>
         </Card.Section>
         <Card.Section>

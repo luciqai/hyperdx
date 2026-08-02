@@ -92,6 +92,24 @@ export default function TeamPage() {
     [refetchTeam, setTeamName],
   );
 
+  const accessSections: TeamTab['sections'] = [
+    ...(hasAdminAccess
+      ? [{ id: 'team-access-roles', content: <RbacRolesSection /> }]
+      : []),
+    ...(hasAllowedAuthMethods
+      ? [
+          {
+            id: 'team-access-security-policies',
+            content: (
+              <SecurityPoliciesSection
+                allowedAuthMethods={allowedAuthMethods}
+              />
+            ),
+          },
+        ]
+      : []),
+  ];
+
   const tabs: TeamTab[] = [
     {
       value: 'data',
@@ -117,29 +135,13 @@ export default function TeamPage() {
         },
       ],
     },
-    // The Access tab is unconditional — roles always exist. Only Security
-    // Policies stays gated on the team having configured auth methods.
-    {
-      value: 'access',
-      label: 'Access',
-      sections: [
-        ...(hasAdminAccess
-          ? [{ id: 'team-access-roles', content: <RbacRolesSection /> }]
-          : []),
-        ...(hasAllowedAuthMethods
-          ? [
-              {
-                id: 'team-access-security-policies',
-                content: (
-                  <SecurityPoliciesSection
-                    allowedAuthMethods={allowedAuthMethods}
-                  />
-                ),
-              },
-            ]
-          : []),
-      ],
-    },
+    // The Access tab appears whenever it has something to show. Roles are
+    // admin-only and Security Policies needs configured auth methods, so a
+    // non-admin on a team without them would otherwise land on a blank tab —
+    // the "advertises something you can't have" failure the design forbids.
+    ...(accessSections.length > 0
+      ? [{ value: 'access', label: 'Access', sections: accessSections }]
+      : []),
     {
       value: 'api-agents',
       label: 'API & Agents',

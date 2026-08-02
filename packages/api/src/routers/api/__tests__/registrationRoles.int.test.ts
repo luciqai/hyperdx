@@ -72,3 +72,86 @@ describe('registration seeds RBAC roles', () => {
     expect(members.body.data[0].roleId).toEqual(expect.any(String));
   });
 });
+
+describe('invite acceptance assigns a real role', () => {
+  const server = getServer();
+
+  beforeAll(async () => {
+    await server.start();
+    await Role.init();
+  });
+
+  afterEach(async () => {
+    await server.clearDBs();
+  });
+
+  afterAll(async () => {
+    await server.stop();
+  });
+
+  // Regression: the invited user was created with no role at all. Combined
+  // with the middleware's deliberate fail-open, that silently made every
+  // invited member a full administrator on a fully-migrated deployment.
+  it('gives an invited user the Member role, not admin-by-fail-open', async () => {
+    const founder = getAgent(server);
+    await founder
+      .post('/register/password')
+      .send({
+        email: 'owner@example.com',
+        password: 'Str0ng!Password',
+        confirmPassword: 'Str0ng!Password',
+      })
+      .expect(200);
+
+    const team = await Team.findOne({});
+    const invite = await founder
+      .post('/team/invitation')
+      .send({ email: 'invitee@example.com' })
+      .expect(200);
+
+    const token = new URL(invite.body.url).searchParams.get('token');
+    expect(token).toBeTruthy();
+
+    const joiner = getAgent(server);
+    await joiner.post(`/team/setup/${token}`).send({
+      password: 'Str0ng!Password',
+    });
+
+    const invited = await User.findOne({
+      email: 'invitee@example.com',
+    }).populate('role');
+    expect(invited).not.toBeNull();
+    expect(invited!.role).not.toBeNull();
+    expect((invited!.role as any).name).toBe('Member');
+    expect((invited!.role as any).isAdmin).toBe(false);
+    expect((invited!.role as any).team.toString()).toBe(team!._id.toString());
+  });
+
+  it('an invited user cannot reach admin-only routes', async () => {
+    const founder = getAgent(server);
+    await founder
+      .post('/register/password')
+      .send({
+        email: 'owner2@example.com',
+        password: 'Str0ng!Password',
+        confirmPassword: 'Str0ng!Password',
+      })
+      .expect(200);
+
+    const invite = await founder
+      .post('/team/invitation')
+      .send({ email: 'invitee2@example.com' })
+      .expect(200);
+    const token = new URL(invite.body.url).searchParams.get('token');
+
+    const joiner = getAgent(server);
+    await joiner
+      .post(`/team/setup/${token}`)
+      .send({ password: 'Str0ng!Password' });
+
+    // Rotating the ingestion key is requireAdmin(). Before the fix this
+    // returned 200 for an invited user.
+    await joiner.patch('/team/apiKey').expect(403);
+    await joiner.post('/team/roles').send({}).expect(403);
+  });
+});

@@ -439,8 +439,13 @@ export class TeamPage {
     return this.page.getByTestId('role-editor-modal');
   }
 
+  /**
+   * Scoped to tbody: `hasText` is a case-insensitive SUBSTRING match, and the
+   * header row contains "Members" — so an unscoped `tr` filter for "Member"
+   * would resolve to the header and the assertions would be vacuous.
+   */
   getRoleRow(name: string) {
-    return this.rbacRolesSection.locator('tr').filter({ hasText: name });
+    return this.rbacRolesSection.locator('tbody tr').filter({ hasText: name });
   }
 
   get querySettings() {

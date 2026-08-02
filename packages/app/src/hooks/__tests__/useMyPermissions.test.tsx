@@ -49,4 +49,17 @@ describe('useMyPermissions', () => {
     expect(result.current.isAdmin).toBe(true);
     expect(result.current.can('connections', 'manage')).toBe(true);
   });
+
+  // Regression: `me` is undefined while /me is in flight, which made `role`
+  // null and therefore isAdmin true — flashing the full admin UI to every
+  // non-admin on load and letting them click controls that then 403.
+  it('grants nothing while /me is still loading', () => {
+    mockUseMe.mockReturnValue({ data: undefined, isLoading: true });
+
+    const { result } = renderHook(() => useMyPermissions());
+
+    expect(result.current.isLoading).toBe(true);
+    expect(result.current.isAdmin).toBe(false);
+    expect(result.current.can('dashboards', 'read')).toBe(false);
+  });
 });

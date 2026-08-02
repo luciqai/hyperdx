@@ -73,4 +73,34 @@ describe('add_rbac_roles migration', () => {
       0,
     );
   });
+
+  // Regression: `up` used insertMany, so a re-run after a partial failure —
+  // or after the API booted first and seeded roles itself — threw E11000 and
+  // left the operator with a migration that could never advance.
+  it('is idempotent: a second up() is a no-op and preserves assignments', async () => {
+    const db = mongooseConnection.db!;
+    const team = new Types.ObjectId();
+    await db.collection('teams').insertOne({ _id: team, name: 'A' });
+    await db
+      .collection('users')
+      .insertOne({ email: 'a@x.com', team, accessKey: 'key-idem' });
+
+    await migration.up(db);
+
+    const roles = await db.collection('roles').find({ team }).toArray();
+    expect(roles).toHaveLength(3);
+
+    // An admin then demotes the user to ReadOnly.
+    const readOnly = roles.find(r => r.name === 'ReadOnly');
+    await db
+      .collection('users')
+      .updateOne({ email: 'a@x.com' }, { $set: { role: readOnly!._id } });
+
+    await expect(migration.up(db)).resolves.not.toThrow();
+
+    expect(await db.collection('roles').countDocuments({ team })).toBe(3);
+    const user = await db.collection('users').findOne({ email: 'a@x.com' });
+    // Must NOT be clobbered back to Admin.
+    expect(user!.role.toString()).toBe(readOnly!._id.toString());
+  });
 });
