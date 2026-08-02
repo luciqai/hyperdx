@@ -12,6 +12,7 @@ export interface IUser {
   email: string;
   name: string;
   team: ObjectId;
+  role?: ObjectId;
 }
 
 export type UserDocument = mongoose.HydratedDocument<IUser>;
@@ -24,6 +25,7 @@ const UserSchema = new Schema(
       required: true,
     },
     team: { type: mongoose.Schema.Types.ObjectId, ref: 'Team' },
+    role: { type: mongoose.Schema.Types.ObjectId, ref: 'Role' },
     accessKey: {
       type: String,
       default: function genUUID() {
