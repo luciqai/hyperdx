@@ -7,8 +7,10 @@ export function findUserByAccessKey(accessKey: string) {
   return User.findOne({ accessKey });
 }
 
+// Populated on every session request via passport's deserializeUser, so RBAC
+// middleware can read req.user.role without an extra round trip.
 export function findUserById(id: string) {
-  return User.findById(id);
+  return User.findById(id).populate('role');
 }
 
 export function findUserByEmail(email: string) {
