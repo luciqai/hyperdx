@@ -9,6 +9,18 @@ import * as config from '@/config';
 import { getCounter } from '@/utils/instrumentation';
 import logger from '@/utils/logger';
 
+/**
+ * Generic-transparent handler type.
+ *
+ * Express unifies the generics of every handler passed to `router.get(...)`.
+ * A concrete `RequestHandler` defaults `req.query` to `ParsedQs`, which
+ * collides with routes whose `processRequest` narrows the query type — the
+ * overload then silently collapses to `ParsedQs` and the handler stops
+ * type-checking. Declaring `any` for each slot lets these middlewares sit in
+ * any position without constraining the route's inferred types.
+ */
+type AnyRequestHandler = RequestHandler<any, any, any, any, any>;
+
 export type RbacExemptReason =
   | 'public'
   | 'personal-state'
@@ -95,7 +107,7 @@ function deny(
 export function requirePermission(
   resource: Resource,
   level: PermissionLevel,
-): RequestHandler {
+): AnyRequestHandler {
   const handler = (req: Request, res: Response, next: NextFunction) => {
     if (shortCircuits(req)) return next();
 
@@ -112,7 +124,7 @@ export function requirePermission(
  * Hard capability. Deliberately not expressible as a permission, so no custom
  * role can grant it and no escalation check is needed.
  */
-export function requireAdmin(): RequestHandler {
+export function requireAdmin(): AnyRequestHandler {
   const handler = (req: Request, res: Response, next: NextFunction) => {
     if (shortCircuits(req)) return next();
     return deny(res);
@@ -122,7 +134,9 @@ export function requireAdmin(): RequestHandler {
 }
 
 /** Explicit opt-out. The reason string appears in the boot coverage report. */
-export function noPermissionRequired(reason: RbacExemptReason): RequestHandler {
+export function noPermissionRequired(
+  reason: RbacExemptReason,
+): AnyRequestHandler {
   const handler = (_req: Request, _res: Response, next: NextFunction) => next();
   return tag(handler, { kind: 'exempt', reason });
 }

@@ -13,29 +13,35 @@ import {
   updateSource,
 } from '@/controllers/sources';
 import { getNonNullUserWithTeam } from '@/middleware/auth';
+import { requirePermission } from '@/middleware/rbac';
 import { objectIdSchema } from '@/utils/zod';
 
 const router = express.Router();
 
-router.get('/', async (req, res, next) => {
-  try {
-    const { teamId } = getNonNullUserWithTeam(req);
+router.get(
+  '/',
+  requirePermission('sources', 'read'),
+  async (req, res, next) => {
+    try {
+      const { teamId } = getNonNullUserWithTeam(req);
 
-    const sources = await getSources(teamId.toString());
+      const sources = await getSources(teamId.toString());
 
-    return res.json(
-      sources.map(
-        // @ts-expect-error source.toJSON has incompatible type signatures but is actually a safe operation
-        source => source.toJSON({ getters: true }),
-      ),
-    );
-  } catch (e) {
-    next(e);
-  }
-});
+      return res.json(
+        sources.map(
+          // @ts-expect-error source.toJSON has incompatible type signatures but is actually a safe operation
+          source => source.toJSON({ getters: true }),
+        ),
+      );
+    } catch (e) {
+      next(e);
+    }
+  },
+);
 
 router.post(
   '/',
+  requirePermission('sources', 'manage'),
   validateRequest({
     body: SourceSchemaNoId,
   }),
@@ -57,6 +63,7 @@ router.post(
 
 router.put(
   '/:id',
+  requirePermission('sources', 'manage'),
   validateRequest({
     body: SourceSchema,
     params: z.object({
@@ -86,6 +93,7 @@ router.put(
 
 router.delete(
   '/:id',
+  requirePermission('sources', 'manage'),
   validateRequest({
     params: z.object({
       id: objectIdSchema,
