@@ -16,11 +16,14 @@ import {
 import { notifications } from '@mantine/notifications';
 import { IconPencil } from '@tabler/icons-react';
 
+import { useMyPermissions } from '@/hooks/useMyPermissions';
+
 import { PageHeader } from './components/PageHeader';
 import ApiKeysSection from './components/TeamSettings/ApiKeysSection';
 import ConnectionsSection from './components/TeamSettings/ConnectionsSection';
 import IntegrationsSection from './components/TeamSettings/IntegrationsSection';
 import McpServerSection from './components/TeamSettings/McpServerSection';
+import RbacRolesSection from './components/TeamSettings/RbacRolesSection';
 import SecurityPoliciesSection from './components/TeamSettings/SecurityPoliciesSection';
 import SourcesSection from './components/TeamSettings/SourcesSection';
 import TeamMembersSection from './components/TeamSettings/TeamMembersSection';
@@ -58,7 +61,7 @@ export default function TeamPage() {
   const allowedAuthMethods = team?.allowedAuthMethods ?? [];
   const hasAllowedAuthMethods = allowedAuthMethods.length > 0;
 
-  const hasAdminAccess = true;
+  const { isAdmin: hasAdminAccess } = useMyPermissions();
   const [isEditingTeamName, setIsEditingTeamName] = useState(false);
   const form = useForm<{ name: string }>({
     defaultValues: { name: team?.name },
@@ -114,12 +117,17 @@ export default function TeamPage() {
         },
       ],
     },
-    ...(hasAllowedAuthMethods
-      ? [
-          {
-            value: 'access',
-            label: 'Access',
-            sections: [
+    // The Access tab is unconditional — roles always exist. Only Security
+    // Policies stays gated on the team having configured auth methods.
+    {
+      value: 'access',
+      label: 'Access',
+      sections: [
+        ...(hasAdminAccess
+          ? [{ id: 'team-access-roles', content: <RbacRolesSection /> }]
+          : []),
+        ...(hasAllowedAuthMethods
+          ? [
               {
                 id: 'team-access-security-policies',
                 content: (
@@ -128,10 +136,10 @@ export default function TeamPage() {
                   />
                 ),
               },
-            ],
-          },
-        ]
-      : []),
+            ]
+          : []),
+      ],
+    },
     {
       value: 'api-agents',
       label: 'API & Agents',
