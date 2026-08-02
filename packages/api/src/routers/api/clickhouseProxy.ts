@@ -8,6 +8,7 @@ import { validateRequest } from 'zod-express-middleware';
 import { CODE_VERSION } from '@/config';
 import { getConnectionById } from '@/controllers/connection';
 import { getNonNullUserWithTeam } from '@/middleware/auth';
+import { noPermissionRequired, requirePermission } from '@/middleware/rbac';
 import { validateRequestHeaders } from '@/middleware/validation';
 import { recordOperationOutcome } from '@/utils/instrumentation';
 import logger from '@/utils/logger';
@@ -84,6 +85,7 @@ const CUSTOM_SETTING_KEY_USER_SUFFIX = 'user';
 
 router.post(
   '/test',
+  requirePermission('connections', 'manage'),
   validateRequest({
     body: z.object({
       host: z.string().url(),
@@ -340,8 +342,11 @@ const markProxyStart: RequestHandler = (_req, res, next) => {
   next();
 };
 
+// Query paths stay ungated in slice A: source-level filtering lands in slice
+// B. Gating them on 'sources' today would break read-only members entirely.
 router.get(
   '/*',
+  noPermissionRequired('query-path-slice-B'),
   hasConnectionId,
   getConnection,
   markProxyStart,
@@ -349,6 +354,7 @@ router.get(
 );
 router.post(
   '/*',
+  noPermissionRequired('query-path-slice-B'),
   hasConnectionId,
   getConnection,
   markProxyStart,

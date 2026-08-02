@@ -6,10 +6,16 @@ import { pipeline } from 'stream/promises';
 
 import { getConnectionById } from '@/controllers/connection';
 import { getNonNullUserWithTeam } from '@/middleware/auth';
+import { noPermissionRequired } from '@/middleware/rbac';
 import { getCounter, getHistogram } from '@/utils/instrumentation';
 import logger from '@/utils/logger';
 
 const router = express.Router();
+
+// Query paths stay ungated in slice A: source-level filtering lands in slice B.
+// Each route gets its own declaration instance so the boot-time coverage
+// walker sees a distinct tagged handler per layer.
+const queryPathExempt = () => noPermissionRequired('query-path-slice-B');
 
 // The proxy handlers catch their own errors and return Prometheus-shaped 4xx
 // bodies, so failures never reach the API error middleware. Track them here
@@ -367,8 +373,8 @@ const queryRangeHandler: express.RequestHandler = async (req, res) => {
     });
   }
 };
-router.get('/query_range', queryRangeHandler);
-router.post('/query_range', queryRangeHandler);
+router.get('/query_range', queryPathExempt(), queryRangeHandler);
+router.post('/query_range', queryPathExempt(), queryRangeHandler);
 
 // --------------------------
 // GET|POST /query
@@ -475,8 +481,8 @@ const queryHandler: express.RequestHandler = async (req, res) => {
     });
   }
 };
-router.get('/query', queryHandler);
-router.post('/query', queryHandler);
+router.get('/query', queryPathExempt(), queryHandler);
+router.post('/query', queryPathExempt(), queryHandler);
 
 // --------------------------
 // GET /label/:name/values
@@ -488,7 +494,7 @@ router.post('/query', queryHandler);
 // https://prometheus.io/docs/concepts/data_model/#metric-names-and-labels
 const PROMETHEUS_LABEL_NAME = /^[a-zA-Z_:][a-zA-Z0-9_:]*$/;
 
-router.get('/label/:name/values', async (req, res) => {
+router.get('/label/:name/values', queryPathExempt(), async (req, res) => {
   const startedAt = performance.now();
   let backend: PrometheusBackend = 'unknown';
   try {

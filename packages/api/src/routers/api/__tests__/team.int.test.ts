@@ -98,7 +98,8 @@ describe('team router', () => {
     });
     const resp = await agent.get('/team/members').expect(200);
 
-    expect(resp.body.data.map(({ _id, ...rest }: any) => rest))
+    // roleId is a generated ObjectId, so it is stripped alongside _id.
+    expect(resp.body.data.map(({ _id, roleId, ...rest }: any) => rest))
       .toMatchInlineSnapshot(`
       [
         {
@@ -106,16 +107,19 @@ describe('team router', () => {
           "hasPasswordAuth": true,
           "isCurrentUser": true,
           "name": "fake@deploysentinel.com",
+          "roleName": "Admin",
         },
         {
           "email": "user1@example.com",
           "hasPasswordAuth": true,
           "isCurrentUser": false,
+          "roleName": null,
         },
         {
           "email": "user2@example.com",
           "hasPasswordAuth": true,
           "isCurrentUser": false,
+          "roleName": null,
         },
       ]
     `);

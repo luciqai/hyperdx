@@ -9,8 +9,10 @@ import {
   generateAlertSilenceToken,
   silenceAlertByToken,
 } from '@/controllers/alerts';
+import { seedSystemRoles } from '@/controllers/role';
 import { createTeam, isTeamExisting } from '@/controllers/team';
 import { handleAuthError, redirectToDashboard } from '@/middleware/auth';
+import { noPermissionRequired } from '@/middleware/rbac';
 import TeamInvite from '@/models/teamInvite';
 import User from '@/models/user'; // TODO -> do not import model directly
 import { setupTeamDefaults } from '@/setupDefaults';
@@ -31,7 +33,7 @@ const registrationSchema = z
 
 const router = express.Router();
 
-router.get('/health', async (req, res) => {
+router.get('/health', noPermissionRequired('public'), async (req, res) => {
   res.send({
     data: 'OK',
     version: config.CODE_VERSION,
@@ -41,19 +43,24 @@ router.get('/health', async (req, res) => {
 });
 
 type InstallationEspRes = express.Response<InstallationApiResponse>;
-router.get('/installation', async (_, res: InstallationEspRes, next) => {
-  try {
-    const _isTeamExisting = await isTeamExisting();
-    return res.json({
-      isTeamExisting: _isTeamExisting,
-    });
-  } catch (e) {
-    next(e);
-  }
-});
+router.get(
+  '/installation',
+  noPermissionRequired('public'),
+  async (_, res: InstallationEspRes, next) => {
+    try {
+      const _isTeamExisting = await isTeamExisting();
+      return res.json({
+        isTeamExisting: _isTeamExisting,
+      });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
 
 router.post(
   '/login/password',
+  noPermissionRequired('public'),
   passport.authenticate('local', {
     failWithError: true,
     failureMessage: true,
@@ -64,6 +71,7 @@ router.post(
 
 router.post(
   '/register/password',
+  noPermissionRequired('public'),
   validateRequest({ body: registrationSchema }),
   async (req, res, next) => {
     try {
@@ -91,6 +99,17 @@ router.post(
           });
           user.team = team._id;
           user.name = email;
+
+          // The founder of a team is its first admin. Seeding here (rather
+          // than in setupTeamDefaults) keeps the role assignment on the same
+          // save as the team association, so a user can never exist without a
+          // role on a freshly created team.
+          const roles = await seedSystemRoles(team._id);
+          const adminRole = roles.find(r => r.isAdmin);
+          if (adminRole) {
+            user.role = adminRole._id;
+          }
+
           await user.save();
 
           // Set up default connections and sources for this new team
@@ -123,7 +142,7 @@ router.post(
   },
 );
 
-router.get('/logout', (req, res, next) => {
+router.get('/logout', noPermissionRequired('public'), (req, res, next) => {
   req.logout(function (err) {
     if (err) {
       return next(err);
@@ -133,67 +152,74 @@ router.get('/logout', (req, res, next) => {
 });
 
 // TODO: rename this ?
-router.post('/team/setup/:token', async (req, res, next) => {
-  try {
-    const { password } = req.body;
-    const { token } = req.params;
+router.post(
+  '/team/setup/:token',
+  noPermissionRequired('public'),
+  async (req, res, next) => {
+    try {
+      const { password } = req.body;
+      const { token } = req.params;
 
-    if (!validatePassword(password)) {
-      return res.redirect(
-        `${config.FRONTEND_REDIRECT_BASE}/join-team?err=invalid&token=${token}`,
-      );
-    }
+      if (!validatePassword(password)) {
+        return res.redirect(
+          `${config.FRONTEND_REDIRECT_BASE}/join-team?err=invalid&token=${token}`,
+        );
+      }
 
-    const teamInvite = await TeamInvite.findOne({
-      token: req.params.token,
-    });
-    if (!teamInvite) {
-      return res.status(401).send('Invalid token');
-    }
+      const teamInvite = await TeamInvite.findOne({
+        token: req.params.token,
+      });
+      if (!teamInvite) {
+        return res.status(401).send('Invalid token');
+      }
 
-    (User as any).register(
-      new User({
-        email: teamInvite.email,
-        name: teamInvite.email,
-        team: teamInvite.teamId,
-      }),
-      password,
-      async (err: Error, user: any) => {
-        if (err) {
-          logger.error({ err: serializeError(err) }, 'Team setup error');
-          return res.redirect(
-            `${config.FRONTEND_REDIRECT_BASE}/join-team?token=${token}&err=500`,
-          );
-        }
-
-        await TeamInvite.findByIdAndRemove(teamInvite._id);
-
-        req.login(user, err => {
+      (User as any).register(
+        new User({
+          email: teamInvite.email,
+          name: teamInvite.email,
+          team: teamInvite.teamId,
+        }),
+        password,
+        async (err: Error, user: any) => {
           if (err) {
-            return next(err);
+            logger.error({ err: serializeError(err) }, 'Team setup error');
+            return res.redirect(
+              `${config.FRONTEND_REDIRECT_BASE}/join-team?token=${token}&err=500`,
+            );
           }
-          redirectToDashboard(req, res);
-        });
-      },
-    );
-  } catch (e) {
-    next(e);
-  }
-});
 
-router.get('/ext/silence-alert/:token', async (req, res) => {
-  let isError = false;
+          await TeamInvite.findByIdAndRemove(teamInvite._id);
 
-  try {
-    const token = req.params.token;
-    await silenceAlertByToken(token);
-  } catch (e) {
-    isError = true;
-    logger.error({ err: e }, 'Failed to silence alert');
-  }
+          req.login(user, err => {
+            if (err) {
+              return next(err);
+            }
+            redirectToDashboard(req, res);
+          });
+        },
+      );
+    } catch (e) {
+      next(e);
+    }
+  },
+);
 
-  // TODO: Create a template for utility pages
-  return res.send(`
+router.get(
+  '/ext/silence-alert/:token',
+  noPermissionRequired('public'),
+  async (req, res) => {
+    let isError = false;
+
+    try {
+      const token = req.params.token;
+      await silenceAlertByToken(token);
+    } catch (e) {
+      isError = true;
+      logger.error({ err: e }, 'Failed to silence alert');
+    }
+
+    // TODO: Create a template for utility pages
+    return res.send(`
   <html>
     <head>
       <title>HyperDX</title>
@@ -213,6 +239,7 @@ router.get('/ext/silence-alert/:token', async (req, res) => {
       </main>
     </body>
   </html>`);
-});
+  },
+);
 
 export default router;
