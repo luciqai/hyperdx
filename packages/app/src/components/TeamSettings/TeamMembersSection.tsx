@@ -9,20 +9,32 @@ import {
   Divider,
   Group,
   Modal,
+  Select,
   Stack,
   Table,
   Text,
   TextInput,
+  Tooltip,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { IconLock, IconUserPlus } from '@tabler/icons-react';
 
 import api from '@/api';
+import { showRoleErrorNotification } from '@/components/TeamSettings/RoleEditorModal';
+import { useMyPermissions } from '@/hooks/useMyPermissions';
 import { useBrandDisplayName } from '@/theme/ThemeProvider';
+
+/**
+ * A team always needs someone who can hand out roles, so the last admin is
+ * frozen. The server enforces this too (409) — disabling here just avoids
+ * offering an action that is guaranteed to fail.
+ */
+const LAST_ADMIN_MESSAGE =
+  "The last admin can't be changed. Promote someone else first.";
 
 export default function TeamMembersSection() {
   const brandName = useBrandDisplayName();
-  const hasAdminAccess = true;
+  const { isAdmin: hasAdminAccess } = useMyPermissions();
 
   const {
     data: members,
@@ -35,6 +47,41 @@ export default function TeamMembersSection() {
     isLoading: isLoadingInvitations,
     refetch: refetchInvitations,
   } = api.useTeamInvitations();
+
+  const { data: rolesData } = api.useRoles();
+  const assignRole = api.useAssignMemberRole();
+
+  const roles = rolesData?.data ?? [];
+  const roleOptions = roles.map(role => ({ value: role.id, label: role.name }));
+
+  const adminRoleIds = new Set(
+    roles.filter(role => role.isAdmin).map(role => role.id),
+  );
+  const holdsAdminRole = (roleId?: string | null) =>
+    roleId != null && adminRoleIds.has(roleId);
+  const adminCount = (members?.data ?? []).filter(member =>
+    holdsAdminRole(member.roleId),
+  ).length;
+
+  const assignRoleAction = (userId: string, roleId: string | null) => {
+    if (!roleId) {
+      return;
+    }
+    assignRole.mutate(
+      { userId, roleId },
+      {
+        onSuccess: () => {
+          notifications.show({ color: 'green', message: 'Role updated' });
+          refetchMembers();
+        },
+        onError: error => {
+          // The server explains itself better than we can here — the last-admin
+          // guard answers 409 with its own message.
+          void showRoleErrorNotification(error, 'Could not update the role.');
+        },
+      },
+    );
+  };
 
   const onSubmitTeamInviteForm = ({ email }: { email: string }) => {
     sendTeamInviteAction(email);
@@ -223,64 +270,118 @@ export default function TeamMembersSection() {
         </Card.Section>
         <Card.Section>
           <Table horizontalSpacing="lg" verticalSpacing="xs">
+            <Table.Thead>
+              <Table.Tr>
+                <Table.Th>Member</Table.Th>
+                <Table.Th />
+                <Table.Th>Role</Table.Th>
+                <Table.Th />
+              </Table.Tr>
+            </Table.Thead>
             <Table.Tbody>
               {!isLoadingMembers &&
                 Array.isArray(members?.data) &&
-                members?.data.map(member => (
-                  <Table.Tr key={member.email}>
-                    <Table.Td>
-                      <div>
-                        {member.isCurrentUser && (
-                          <Badge variant="light" mr="xs" tt="none">
-                            You
+                members?.data.map(member => {
+                  const isLastAdmin =
+                    adminCount === 1 && holdsAdminRole(member.roleId);
+
+                  return (
+                    <Table.Tr key={member.email}>
+                      <Table.Td>
+                        <div>
+                          {member.isCurrentUser && (
+                            <Badge variant="light" mr="xs" tt="none">
+                              You
+                            </Badge>
+                          )}
+                          <span className="text-white fw-bold fs-7">
+                            {member.name}
+                          </span>
+                        </div>
+                        <Group mt={4} fz="xs">
+                          <div>{member.email}</div>
+                          {member.hasPasswordAuth && (
+                            <div>
+                              <IconLock size={14} /> Password Auth
+                            </div>
+                          )}
+                        </Group>
+                      </Table.Td>
+                      <Table.Td>
+                        {member.groupName && (
+                          <Badge
+                            variant="light"
+                            color="green"
+                            fw="normal"
+                            tt="none"
+                          >
+                            {member.groupName}
                           </Badge>
                         )}
-                        <span className="text-white fw-bold fs-7">
-                          {member.name}
-                        </span>
-                      </div>
-                      <Group mt={4} fz="xs">
-                        <div>{member.email}</div>
-                        {member.hasPasswordAuth && (
-                          <div>
-                            <IconLock size={14} /> Password Auth
-                          </div>
-                        )}
-                      </Group>
-                    </Table.Td>
-                    <Table.Td>
-                      {member.groupName && (
-                        <Badge
-                          variant="light"
-                          color="green"
-                          fw="normal"
-                          tt="none"
+                      </Table.Td>
+                      <Table.Td>
+                        {/*
+                          Disabled inputs swallow pointer events, so the tooltip
+                          hangs off a wrapper rather than the Select itself.
+                        */}
+                        <Tooltip
+                          label={LAST_ADMIN_MESSAGE}
+                          disabled={!isLastAdmin}
+                          multiline
+                          w={240}
+                          withArrow
                         >
-                          {member.groupName}
-                        </Badge>
-                      )}
-                    </Table.Td>
-                    <Table.Td style={{ textAlign: 'right' }}>
-                      {!member.isCurrentUser && hasAdminAccess && (
-                        <Group justify="flex-end" gap="8">
-                          <Button
-                            size="compact-sm"
-                            variant="danger"
-                            onClick={() =>
-                              setDeleteTeamMemberConfirmationModalData({
-                                mode: 'team',
-                                id: member._id,
-                                email: member.email,
-                              })
-                            }
-                          >
-                            Remove
-                          </Button>
-                        </Group>
-                      )}
-                    </Table.Td>
-                  </Table.Tr>
-                ))}
+                          <Box w={180}>
+                            <Select
+                              data-testid={`member-role-${member.email}`}
+                              aria-label={`Role for ${member.email}`}
+                              size="xs"
+                              allowDeselect={false}
+                              comboboxProps={{ withinPortal: true }}
+                              data={roleOptions}
+                              value={member.roleId ?? null}
+                              placeholder={member.roleName ?? 'No role'}
+                              disabled={!hasAdminAccess || isLastAdmin}
+                              onChange={roleId =>
+                                assignRoleAction(member._id, roleId)
+                              }
+                            />
+                          </Box>
+                        </Tooltip>
+                      </Table.Td>
+                      <Table.Td style={{ textAlign: 'right' }}>
+                        {!member.isCurrentUser && hasAdminAccess && (
+                          <Group justify="flex-end" gap="8">
+                            <Tooltip
+                              label={LAST_ADMIN_MESSAGE}
+                              disabled={!isLastAdmin}
+                              multiline
+                              w={240}
+                              withArrow
+                            >
+                              <Box>
+                                <Button
+                                  size="compact-sm"
+                                  variant="danger"
+                                  disabled={isLastAdmin}
+                                  onClick={() =>
+                                    setDeleteTeamMemberConfirmationModalData({
+                                      mode: 'team',
+                                      id: member._id,
+                                      email: member.email,
+                                    })
+                                  }
+                                >
+                                  Remove
+                                </Button>
+                              </Box>
+                            </Tooltip>
+                          </Group>
+                        )}
+                      </Table.Td>
+                    </Table.Tr>
+                  );
+                })}
               {!isLoadingInvitations &&
                 Array.isArray(invitations?.data) &&
                 invitations.data.map(invitation => (
@@ -300,6 +401,8 @@ export default function TeamMembersSection() {
                         </Button>
                       </CopyToClipboard>
                     </Table.Td>
+                    {/* Role is assigned once the invite is accepted. */}
+                    <Table.Td />
                     <Table.Td style={{ textAlign: 'right' }}>
                       {hasAdminAccess && (
                         <Group justify="flex-end" gap="8">
