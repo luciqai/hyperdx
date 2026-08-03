@@ -1,5 +1,8 @@
+import express from 'express';
+
 import app from '@/api-app';
 import { assertRbacCoverage } from '@/middleware/rbacCoverage';
+import { setupSwagger } from '@/utils/swagger';
 
 /**
  * The highest-value test in the RBAC slice.
@@ -70,5 +73,21 @@ describe('RBAC coverage over the real app', () => {
     expect(v2.filter(r => r.includes('/api/v2')).length).toBeGreaterThanOrEqual(
       39,
     );
+  });
+
+  it('covers routes that are only mounted under a feature flag', () => {
+    // Regression: /api/v2/docs.json is registered by setupSwagger, which only
+    // runs when ENABLE_SWAGGER=true. The test env does not set it, so the
+    // route did not exist here and the suite passed while the dev server —
+    // where .env.development sets it — refused to boot.
+    //
+    // Build a throwaway app with the flag's routes mounted and assert they
+    // declare permissions too.
+    const flagged = express();
+    setupSwagger(flagged);
+
+    expect(() =>
+      assertRbacCoverage(flagged, { exemptMounts: ['/mcp'] }),
+    ).not.toThrow();
   });
 });

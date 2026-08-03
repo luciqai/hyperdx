@@ -4,6 +4,8 @@ import path from 'path';
 import swaggerJsdoc from 'swagger-jsdoc';
 import swaggerUi from 'swagger-ui-express';
 
+import { noPermissionRequired } from '@/middleware/rbac';
+
 export const swaggerOptions = {
   definition: {
     openapi: '3.0.0',
@@ -74,8 +76,14 @@ export function setupSwagger(app: Application) {
   // Serve swagger docs
   app.use('/api/v2/docs', swaggerUi.serve, swaggerUi.setup(specs));
 
-  // Serve OpenAPI spec as JSON (needed for ReDoc)
-  app.get('/api/v2/docs.json', (req, res) => {
+  // Serve OpenAPI spec as JSON (needed for ReDoc).
+  //
+  // Declared public: the spec is static API documentation carrying no team
+  // data, and this route is not behind validateUserAccessKey. The declaration
+  // is required because slice C brought /api/v2 under the RBAC coverage
+  // assertion — without it the server refuses to boot wherever
+  // ENABLE_SWAGGER is set, which is the default in .env.development.
+  app.get('/api/v2/docs.json', noPermissionRequired('public'), (req, res) => {
     res.setHeader('Content-Type', 'application/json');
     res.send(specs);
   });
