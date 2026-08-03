@@ -61,7 +61,15 @@ export default function TeamPage() {
   const allowedAuthMethods = team?.allowedAuthMethods ?? [];
   const hasAllowedAuthMethods = allowedAuthMethods.length > 0;
 
-  const { isAdmin: hasAdminAccess } = useMyPermissions();
+  // Gate each section on the permission its own data needs. A section whose
+  // read permission is missing would otherwise render and 403 on load, which
+  // is worse than not offering it: `connections: none` is the default for both
+  // Member and ReadOnly, so that was every non-admin's Team Settings.
+  const {
+    isAdmin: hasAdminAccess,
+    can,
+    isLoading: isLoadingPermissions,
+  } = useMyPermissions();
   const [isEditingTeamName, setIsEditingTeamName] = useState(false);
   const form = useForm<{ name: string }>({
     defaultValues: { name: team?.name },
@@ -110,31 +118,29 @@ export default function TeamPage() {
       : []),
   ];
 
+  const dataSections: TeamTab['sections'] = [
+    ...(can('sources', 'read')
+      ? [{ id: 'team-data-sources', content: <SourcesSection /> }]
+      : []),
+    ...(can('connections', 'read')
+      ? [{ id: 'team-data-connections', content: <ConnectionsSection /> }]
+      : []),
+  ];
+
   const tabs: TeamTab[] = [
-    {
-      value: 'data',
-      label: 'Data',
-      sections: [
-        {
-          id: 'team-data-sources',
-          content: <SourcesSection />,
-        },
-        {
-          id: 'team-data-connections',
-          content: <ConnectionsSection />,
-        },
-      ],
-    },
-    {
-      value: 'team',
-      label: 'Members',
-      sections: [
-        {
-          id: 'team-members',
-          content: <TeamMembersSection />,
-        },
-      ],
-    },
+    ...(dataSections.length > 0
+      ? [{ value: 'data', label: 'Data', sections: dataSections }]
+      : []),
+    // GET /team/members requires users:read, which ReadOnly does not have.
+    ...(can('users', 'read')
+      ? [
+          {
+            value: 'team',
+            label: 'Members',
+            sections: [{ id: 'team-members', content: <TeamMembersSection /> }],
+          },
+        ]
+      : []),
     // The Access tab appears whenever it has something to show. Roles are
     // admin-only and Security Policies needs configured auth methods, so a
     // non-admin on a team without them would otherwise land on a blank tab —
@@ -142,6 +148,7 @@ export default function TeamPage() {
     ...(accessSections.length > 0
       ? [{ value: 'access', label: 'Access', sections: accessSections }]
       : []),
+    // Both sections read the team document (team:read), which every role has.
     {
       value: 'api-agents',
       label: 'API & Agents',
@@ -156,16 +163,21 @@ export default function TeamPage() {
         },
       ],
     },
-    {
-      value: 'integrations',
-      label: 'Integrations',
-      sections: [
-        {
-          id: 'team-integrations-webhooks',
-          content: <IntegrationsSection />,
-        },
-      ],
-    },
+    // GET /webhooks requires webhooks:read; ReadOnly has webhooks: none.
+    ...(can('webhooks', 'read')
+      ? [
+          {
+            value: 'integrations',
+            label: 'Integrations',
+            sections: [
+              {
+                id: 'team-integrations-webhooks',
+                content: <IntegrationsSection />,
+              },
+            ],
+          },
+        ]
+      : []),
     {
       value: 'advanced',
       label: 'Query Settings',
@@ -290,7 +302,9 @@ export default function TeamPage() {
               <span data-testid="team-name-display">
                 {team?.name || 'My team'}
               </span>
-              {hasAdminAccess && (
+              {/* PATCH /team/name is team:manage, which Member and ReadOnly
+                  do not hold — gate on the actual permission, not on admin. */}
+              {can('team', 'manage') && (
                 <Button
                   data-testid="team-name-change-button"
                   size="xs"
@@ -311,12 +325,12 @@ export default function TeamPage() {
       </PageHeader>
       <div>
         <Container size="lg" py="md">
-          {isLoading && (
+          {(isLoading || isLoadingPermissions) && (
             <Center mt="xl">
               <Loader color="dimmed" />
             </Center>
           )}
-          {!isLoading && team != null && (
+          {!isLoading && !isLoadingPermissions && team != null && (
             <Tabs value={activeTab} onChange={handleTabChange}>
               <Tabs.List>
                 {tabs.map(tab => (
