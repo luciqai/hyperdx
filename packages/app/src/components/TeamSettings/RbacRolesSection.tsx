@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { type Role } from '@hyperdx/common-utils/dist/types';
 import {
   Badge,
+  Box,
   Button,
   Card,
   Center,
@@ -10,6 +11,7 @@ import {
   Stack,
   Table,
   Text,
+  Tooltip,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { IconPlus } from '@tabler/icons-react';
@@ -136,19 +138,40 @@ export default function RbacRolesSection() {
                         >
                           {role.isSystem ? 'View' : 'Edit'}
                         </Button>
-                        {!role.isSystem && (
-                          <Button
-                            size="compact-sm"
-                            variant="danger"
-                            loading={
-                              deleteRole.isPending &&
-                              deleteRole.variables === role.id
-                            }
-                            onClick={() => void onDelete(role)}
-                          >
-                            Delete
-                          </Button>
-                        )}
+                        {!role.isSystem &&
+                          (() => {
+                            // The member count is the delete guard: the server
+                            // 409s on an in-use role, so say why up front
+                            // instead of letting the click fail.
+                            const inUse = role.memberCount ?? 0;
+                            const deleteButton = (
+                              <Button
+                                size="compact-sm"
+                                variant="danger"
+                                disabled={inUse > 0}
+                                loading={
+                                  deleteRole.isPending &&
+                                  deleteRole.variables === role.id
+                                }
+                                onClick={() => void onDelete(role)}
+                              >
+                                Delete
+                              </Button>
+                            );
+
+                            return inUse > 0 ? (
+                              <Tooltip
+                                label={`${role.name} is assigned to ${inUse} member${inUse === 1 ? '' : 's'}. Move them to another role first.`}
+                                withArrow
+                              >
+                                {/* Disabled buttons swallow pointer events, so
+                                    the tooltip needs a wrapper to fire. */}
+                                <Box>{deleteButton}</Box>
+                              </Tooltip>
+                            ) : (
+                              deleteButton
+                            );
+                          })()}
                       </Group>
                     </Table.Td>
                   </Table.Tr>
