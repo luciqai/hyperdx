@@ -58,6 +58,7 @@ export function registerSql({ context, registerTool }: ToolRegistrar) {
   registerTool(
     'clickstack_sql',
     {
+      permission: 'connections:manage',
       title: 'Raw SQL Query',
       description:
         'Execute raw ClickHouse SQL. ' +

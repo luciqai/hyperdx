@@ -144,6 +144,20 @@ handler, because unlike Express layers the SDK does not expose registered handle
 inspection — `assertToolCoverage` reads that map against the server's registered tool
 names.
 
+**Ordering, discovered during implementation:** the SDK validates `inputSchema` *before*
+invoking the tool callback, so the permission check runs **after** argument validation. A
+denied caller sending malformed arguments therefore receives a validation error rather
+than a permission error.
+
+That is acceptable — the only thing it reveals is schema shape, which `listTools` already
+publishes to every client — but it has two practical consequences worth recording:
+
+1. Permission denial is not the outermost gate. Moving it earlier would mean
+   reimplementing the SDK's dispatch, which is not worth it.
+2. Tests asserting a denial **must pass schema-valid arguments**, or they assert a
+   validation error and pass for the wrong reason. This bit the first draft of
+   `rbacTools.int.test.ts`.
+
 `assertToolCoverage(server)` is the runtime half: after registration, assert every tool
 on the server carries a declaration, and throw at startup listing any that don't. Mirrors
 slice A §7.3.
@@ -237,9 +251,10 @@ All 28 tools. This is the implementation checklist.
 | GET | `/webhooks` | `webhooks: read` |
 | POST | `/webhooks` · PUT `/webhooks/:id` · DELETE `/webhooks/:id` | `webhooks: manage` |
 
-**Rider:** `DELETE /api/v2/team/invitation/:id` must be checked for the same
-unscoped-delete bug slice A fixed on the internal route. If it deletes by `_id` alone it
-is the same cross-tenant IDOR and gets the same `{_id, teamId}` fix and regression test.
+**Rider — checked, does not apply.** `DELETE /api/v2/team/invitation/:id` was inspected
+for the same unscoped-delete bug slice A fixed internally. It is already team-scoped
+(`TeamInvite.findOneAndDelete({ _id, teamId })`, 404 on miss, `team.ts:238`). The IDOR was
+internal-only; no change needed here.
 
 ---
 

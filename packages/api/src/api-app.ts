@@ -133,9 +133,10 @@ if (
 
 app.use('/api/v2', externalRoutersV2);
 
-// Fails startup if any route is missing an RBAC declaration. /mcp and /api/v2
-// authenticate by access key and are gated in a later slice.
-assertRbacCoverage(app, { exemptMounts: ['/mcp', '/api/v2'] });
+// Fails startup if any route is missing an RBAC declaration. /api/v2 is now
+// covered too (slice C). /mcp stays exempt because MCP tools are not Express
+// routes — they get assertToolCoverage at server construction instead.
+assertRbacCoverage(app, { exemptMounts: ['/mcp'] });
 
 // error handling
 app.use(appErrorHandler);

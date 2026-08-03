@@ -60,6 +60,9 @@ app.post('/', mcpRateLimiter, validateUserAccessKey, async (req, res) => {
   const context: McpContext = {
     teamId: teamId.toString(),
     userId,
+    // Populated by findUserByAccessKey. Null when the user has no role, which
+    // denies every tool: this path always fails closed.
+    role: (req.user as any)?.role ?? null,
     mcpClient: userAgentClientInfo(req.get('User-Agent')),
   };
 

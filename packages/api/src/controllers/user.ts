@@ -3,8 +3,11 @@ import mongoose from 'mongoose';
 import type { ObjectId } from '@/models';
 import Alert from '@/models/alert';
 import User from '@/models/user';
+// Populated for the same reason as findUserById: RBAC reads req.user.role.
+// Without this the Bearer path (MCP + External API v2) always saw a missing
+// role, which the resolver would treat as fail-open admin.
 export function findUserByAccessKey(accessKey: string) {
-  return User.findOne({ accessKey });
+  return User.findOne({ accessKey }).populate('role');
 }
 
 // Populated on every session request via passport's deserializeUser, so RBAC

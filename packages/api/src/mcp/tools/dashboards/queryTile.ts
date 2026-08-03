@@ -18,6 +18,7 @@ export function registerQueryTile({
   registerTool(
     'clickstack_query_tile',
     {
+      permission: 'dashboards:read',
       title: 'Query a Dashboard Tile',
       description:
         'Execute the query for a specific tile on an existing dashboard. ' +

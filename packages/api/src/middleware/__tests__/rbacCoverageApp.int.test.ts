@@ -39,4 +39,36 @@ describe('RBAC coverage over the real app', () => {
 
     expect(routes.length).toBeGreaterThan(50);
   });
+
+  it('covers External API v2, not just the internal routers', () => {
+    // Slice C removed /api/v2 from exemptMounts. Assert the walker actually
+    // descends into those sub-routers — otherwise the assertion above would
+    // pass while 39 access-key routes went unchecked.
+    const v2: string[] = [];
+    const walk = (stack: any[], prefix: string) => {
+      for (const layer of stack) {
+        if (layer.route) {
+          for (const m of Object.keys(layer.route.methods)) {
+            v2.push(`${m.toUpperCase()} ${prefix}${layer.route.path}`);
+          }
+        } else {
+          const nested = layer.handle?.stack ?? layer.handle?._router?.stack;
+          if (nested) {
+            const src: string = layer.regexp?.source ?? '';
+            const seg = src
+              .replace('^\\/', '/')
+              .replace('\\/?(?=\\/|$)', '')
+              .replace(/\\\//g, '/')
+              .replace(/\$$/, '');
+            walk(nested, `${prefix}${seg.startsWith('/') ? seg : ''}`);
+          }
+        }
+      }
+    };
+    walk((app as any)._router?.stack ?? (app as any).router?.stack ?? [], '');
+
+    expect(v2.filter(r => r.includes('/api/v2')).length).toBeGreaterThanOrEqual(
+      39,
+    );
+  });
 });

@@ -85,6 +85,7 @@ export function registerSaveWebhook({
   registerTool(
     'clickstack_save_webhook',
     {
+      permission: 'webhooks:manage',
       title: 'Create or Update Webhook',
       description:
         'Create a new webhook (omit id) or update an existing one (provide ' +

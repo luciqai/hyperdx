@@ -108,6 +108,7 @@ export function registerTraceBreakdown({
   registerTool(
     'clickstack_trace_top_time_consuming_operations',
     {
+      permission: 'sources:read',
       title: 'Top Time-Consuming Operations Across Matching Traces',
       description:
         'Given a parent-span filter and a time window, return the child ' +

@@ -10,7 +10,11 @@ import savedSearchesTools from './tools/savedSearches/index';
 import sourcesTools from './tools/sources/index';
 import traceTools from './tools/trace/index';
 import { McpContext } from './tools/types';
-import { createRegisterTool } from './utils/registerTool';
+import {
+  assertToolCoverage,
+  createRegisterTool,
+  type DeclaredPermissions,
+} from './utils/registerTool';
 
 export function createServer(context: McpContext) {
   const server = new McpServer({
@@ -18,7 +22,8 @@ export function createServer(context: McpContext) {
     version: `${CODE_VERSION}-beta`,
   });
 
-  const registerTool = createRegisterTool(server, context);
+  const declared: DeclaredPermissions = new Map();
+  const registerTool = createRegisterTool(server, context, declared);
   const registrar = { server, context, registerTool };
 
   sourcesTools(registrar);
@@ -28,6 +33,10 @@ export function createServer(context: McpContext) {
   savedSearchesTools(registrar);
   traceTools(registrar);
   dashboardPrompts(server, context);
+
+  // Every tool must declare a permission. A new tool that forgets one fails
+  // here rather than shipping ungated — the runtime half of the guarantee.
+  assertToolCoverage(server, declared);
 
   return server;
 }

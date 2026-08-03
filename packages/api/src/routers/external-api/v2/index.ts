@@ -1,6 +1,7 @@
 import express from 'express';
 
 import { validateUserAccessKey } from '@/middleware/auth';
+import { noPermissionRequired } from '@/middleware/rbac';
 import alertsRouter from '@/routers/external-api/v2/alerts';
 import chartsRouter from '@/routers/external-api/v2/charts';
 import connectionsRouter from '@/routers/external-api/v2/connections';
@@ -22,12 +23,18 @@ const defaultRateLimiter = rateLimiter({
   keyGenerator: rateLimiterKeyGenerator,
 });
 
-router.get('/', validateUserAccessKey, (req, res, next) => {
-  res.json({
-    version: 'v2',
-    user: req.user?.toJSON(),
-  });
-});
+router.get(
+  '/',
+  validateUserAccessKey,
+  // Identity check: returns the caller's own user record.
+  noPermissionRequired('personal-state'),
+  (req, res) => {
+    res.json({
+      version: 'v2',
+      user: req.user?.toJSON(),
+    });
+  },
+);
 
 router.use('/alerts', defaultRateLimiter, validateUserAccessKey, alertsRouter);
 

@@ -45,6 +45,7 @@ export function registerSaveAlert({
   registerTool(
     'clickstack_save_alert',
     {
+      permission: 'alerts:manage',
       title: 'Create or Update Alert',
       description:
         'Create a new alert (omit id) or update an existing one (provide id). ' +

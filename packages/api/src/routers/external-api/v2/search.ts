@@ -5,6 +5,7 @@ import { z } from 'zod';
 
 import { parseTimeRange } from '@/mcp/tools/query/helpers';
 import { getNonNullUserWithTeam } from '@/middleware/auth';
+import { requirePermission } from '@/middleware/rbac';
 import { processRequestWithEnhancedErrors as validateRequest } from '@/utils/enhancedErrors';
 import {
   getCounter,
@@ -363,6 +364,7 @@ const router = express.Router();
 
 router.post(
   '/',
+  requirePermission('sources', 'read'),
   validateRequest({ body: searchRequestSchema }),
   async (req, res) => {
     try {

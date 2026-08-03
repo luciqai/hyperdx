@@ -29,6 +29,7 @@ export function registerPatchDashboard({
   registerTool(
     'clickstack_patch_dashboard',
     {
+      permission: 'dashboards:manage',
       title: 'Patch Dashboard',
       description:
         'Make targeted updates to a dashboard without resubmitting the full object. ' +

@@ -252,6 +252,7 @@ export function registerListMetrics({
   registerTool(
     'clickstack_list_metrics',
     {
+      permission: 'sources:read',
       title: 'List Metric Names',
       description:
         'DISCOVERY: Use this after clickstack_describe_source when you need more metric ' +

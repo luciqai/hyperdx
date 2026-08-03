@@ -9,6 +9,7 @@ import {
   findUserByEmail,
   findUsersByTeam,
 } from '@/controllers/user';
+import { requireAdmin, requirePermission } from '@/middleware/rbac';
 import TeamInvite from '@/models/teamInvite';
 import { objectIdSchema } from '@/utils/zod';
 
@@ -28,7 +29,7 @@ const router = express.Router();
  *       '403':
  *         description: Forbidden
  */
-router.get('/', async (req, res, next) => {
+router.get('/', requirePermission('team', 'read'), async (req, res, next) => {
   try {
     const teamId = req.user?.team;
     if (!teamId) {
@@ -63,27 +64,31 @@ router.get('/', async (req, res, next) => {
  *       '200':
  *         description: Successfully retrieved members
  */
-router.get('/members', async (req, res, next) => {
-  try {
-    const teamId = req.user?.team;
-    const userId = req.user?._id;
-    if (!teamId) {
-      return res.sendStatus(403);
-    }
+router.get(
+  '/members',
+  requirePermission('users', 'read'),
+  async (req, res, next) => {
+    try {
+      const teamId = req.user?.team;
+      const userId = req.user?._id;
+      if (!teamId) {
+        return res.sendStatus(403);
+      }
 
-    const teamUsers = await findUsersByTeam(teamId.toString());
-    return res.json({
-      data: teamUsers.map(user => ({
-        id: user._id.toString(),
-        email: user.email,
-        name: user.name,
-        isCurrentUser: !!userId && user._id.equals(userId),
-      })),
-    });
-  } catch (e) {
-    next(e);
-  }
-});
+      const teamUsers = await findUsersByTeam(teamId.toString());
+      return res.json({
+        data: teamUsers.map(user => ({
+          id: user._id.toString(),
+          email: user.email,
+          name: user.name,
+          isCurrentUser: !!userId && user._id.equals(userId),
+        })),
+      });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
 
 /**
  * @openapi
@@ -101,6 +106,7 @@ router.get('/members', async (req, res, next) => {
  */
 router.post(
   '/invitation',
+  requireAdmin(),
   validateRequest({
     body: z.object({
       email: z.string().email(),
@@ -179,31 +185,35 @@ router.post(
  *       '200':
  *         description: Successfully retrieved invitations
  */
-router.get('/invitations', async (req, res, next) => {
-  try {
-    const teamId = req.user?.team;
-    if (!teamId) {
-      return res.sendStatus(403);
+router.get(
+  '/invitations',
+  requirePermission('users', 'read'),
+  async (req, res, next) => {
+    try {
+      const teamId = req.user?.team;
+      if (!teamId) {
+        return res.sendStatus(403);
+      }
+
+      const teamInvites = await TeamInvite.find(
+        { teamId: teamId.toString() },
+        { createdAt: 1, email: 1, name: 1, token: 1 },
+      );
+
+      return res.json({
+        data: teamInvites.map(ti => ({
+          id: ti._id.toString(),
+          createdAt: ti.createdAt,
+          email: ti.email,
+          name: ti.name,
+          url: getTeamInviteUrl(ti.token),
+        })),
+      });
+    } catch (e) {
+      next(e);
     }
-
-    const teamInvites = await TeamInvite.find(
-      { teamId: teamId.toString() },
-      { createdAt: 1, email: 1, name: 1, token: 1 },
-    );
-
-    return res.json({
-      data: teamInvites.map(ti => ({
-        id: ti._id.toString(),
-        createdAt: ti.createdAt,
-        email: ti.email,
-        name: ti.name,
-        url: getTeamInviteUrl(ti.token),
-      })),
-    });
-  } catch (e) {
-    next(e);
-  }
-});
+  },
+);
 
 /**
  * @openapi
@@ -227,6 +237,7 @@ router.get('/invitations', async (req, res, next) => {
  */
 router.delete(
   '/invitation/:id',
+  requireAdmin(),
   validateRequest({ params: z.object({ id: objectIdSchema }) }),
   async (req, res, next) => {
     try {
@@ -275,6 +286,7 @@ router.delete(
  */
 router.delete(
   '/member/:id',
+  requireAdmin(),
   validateRequest({ params: z.object({ id: objectIdSchema }) }),
   async (req, res, next) => {
     try {

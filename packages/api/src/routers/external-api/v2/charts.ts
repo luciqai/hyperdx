@@ -14,6 +14,7 @@ import { z } from 'zod';
 import { getConnectionById } from '@/controllers/connection';
 import { getSource } from '@/controllers/sources';
 import { getTeam } from '@/controllers/team';
+import { requirePermission } from '@/middleware/rbac';
 import { IConnection } from '@/models/connection';
 import { ISource } from '@/models/source';
 import { validateRequestWithEnhancedErrors as validateRequest } from '@/utils/enhancedErrors';
@@ -527,6 +528,7 @@ type SeriesResult = {
  */
 router.post(
   '/series',
+  requirePermission('sources', 'read'),
   validateRequest({
     body: z.object({
       series: z

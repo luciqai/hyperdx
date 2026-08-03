@@ -71,6 +71,7 @@ export function registerEventPatterns({
   registerTool(
     'clickstack_event_patterns',
     {
+      permission: 'sources:read',
       title: 'Event Pattern Mining',
       description:
         'Discover the most common log messages and event patterns. ' +

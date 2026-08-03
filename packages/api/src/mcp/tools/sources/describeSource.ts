@@ -636,6 +636,7 @@ export function registerDescribeSource({
   registerTool(
     'clickstack_describe_source',
     {
+      permission: 'sources:read',
       title: 'Describe Source Schema',
       description:
         'CALL THIS BEFORE WRITING QUERIES — prevents unknown-column errors.\n\n' +

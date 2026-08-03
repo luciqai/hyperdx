@@ -175,6 +175,7 @@ export function registerTraceWaterfall({
   registerTool(
     'clickstack_trace_waterfall',
     {
+      permission: 'sources:read',
       title: 'Trace Waterfall (single trace)',
       description:
         'Fetch all spans in ONE trace and return them as a parent/child waterfall, ' +

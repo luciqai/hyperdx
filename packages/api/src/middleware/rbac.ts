@@ -61,28 +61,65 @@ export function getRbacDeclaration(
   return (handler as any)[RBAC_DECLARATION];
 }
 
-/**
- * Resolution order, cheapest first. Returns true when the request should pass
- * without consulting the permission map.
- */
-function shortCircuits(req: Request): boolean {
-  if (config.IS_LOCAL_APP_MODE) return true;
+/** Minimal shape the resolver needs. Populated `Role` document, or absent. */
+export type RoleLike = {
+  name?: string;
+  isAdmin?: boolean;
+  permissions?: Partial<Record<Resource, PermissionLevel>>;
+} | null;
 
-  const role = (req.user as any)?.role;
+/** How the caller authenticated. Determines the missing-role fail mode. */
+export type AuthPath = 'session' | 'access-key';
+
+/**
+ * `allow` — pass without consulting the permission map.
+ * `deny`  — reject outright.
+ * `check` — consult the permission map.
+ */
+export type Verdict = 'allow' | 'deny' | 'check';
+
+/**
+ * Shared resolution order, cheapest first. Pure so both the Express middleware
+ * and the MCP tool wrapper use identical logic.
+ *
+ * The missing-role branch diverges by auth path deliberately. Slice A's
+ * fail-open exists so a self-hosted operator upgrading mid-incident is not
+ * locked out of their own observability tool — an argument about a human at a
+ * browser. An unattended agent holding a Bearer token has no equivalent claim,
+ * and silently granting it admin is worse than failing its tool call.
+ */
+export function resolveVerdict(
+  role: RoleLike,
+  authPath: AuthPath,
+  actorId?: string,
+): Verdict {
+  if (config.IS_LOCAL_APP_MODE) return 'allow';
 
   if (role == null) {
-    // Deliberate fail-open. A self-hosted operator upgrading mid-incident
-    // should not be locked out of their own observability tool because a
-    // migration step was missed. Loud, never silent.
-    missingRoleCounter.add(1);
+    missingRoleCounter.add(1, { path: authPath });
+    if (authPath === 'access-key') {
+      logger.warn(
+        { userId: actorId, authPath },
+        'RBAC: access-key user has no role assigned; denying. Assign a role to this user.',
+      );
+      return 'deny';
+    }
     logger.warn(
-      { userId: (req.user as any)?._id?.toString() },
+      { userId: actorId, authPath },
       'RBAC: user has no role assigned; allowing as admin. Run the RBAC migration.',
     );
-    return true;
+    return 'allow';
   }
 
-  return role.isAdmin === true;
+  return role.isAdmin === true ? 'allow' : 'check';
+}
+
+function verdictFor(req: Request): Verdict {
+  return resolveVerdict(
+    (req.user as any)?.role ?? null,
+    (req as any)._hdx_authPath === 'access-key' ? 'access-key' : 'session',
+    (req.user as any)?._id?.toString(),
+  );
 }
 
 function deny(
@@ -109,7 +146,9 @@ export function requirePermission(
   level: PermissionLevel,
 ): AnyRequestHandler {
   const handler = (req: Request, res: Response, next: NextFunction) => {
-    if (shortCircuits(req)) return next();
+    const verdict = verdictFor(req);
+    if (verdict === 'allow') return next();
+    if (verdict === 'deny') return deny(res, { resource, level });
 
     const held = (req.user as any).role?.permissions?.[resource];
     if (hasPermission(held, level)) return next();
@@ -126,7 +165,9 @@ export function requirePermission(
  */
 export function requireAdmin(): AnyRequestHandler {
   const handler = (req: Request, res: Response, next: NextFunction) => {
-    if (shortCircuits(req)) return next();
+    // 'check' means "has a role but it is not admin" — admin is not
+    // expressible as a permission, so anything short of 'allow' is a denial.
+    if (verdictFor(req) === 'allow') return next();
     return deny(res);
   };
 

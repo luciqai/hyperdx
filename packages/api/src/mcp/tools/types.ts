@@ -1,17 +1,37 @@
+import type {
+  PermissionLevel,
+  Resource,
+} from '@hyperdx/common-utils/dist/types';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { AnyZodObject } from 'zod';
 
 import type { McpClientInfo } from '@/mcp/utils/mcpClient';
+import type { RoleLike } from '@/middleware/rbac';
 
 export type McpContext = {
   teamId: string;
   userId: string;
   /**
+   * The caller's populated role, or null when none is assigned.
+   *
+   * Carried on the context rather than read from the request because tool
+   * handlers are not Express middleware — there is no `req` at call time.
+   * A null role denies: MCP is always access-key authenticated, and that path
+   * fails closed (see the slice C spec, §7).
+   */
+  role: RoleLike;
+  /**
    * Identity of the calling MCP client application, parsed from User-Agent.
    */
   mcpClient?: McpClientInfo;
 };
+
+/**
+ * What a tool requires to run. `'admin'` is the hard capability — not
+ * expressible as a permission, so no custom role can be granted it.
+ */
+export type ToolPermission = `${Resource}:${PermissionLevel}` | 'admin';
 
 /**
  * The result shape every MCP tool handler should return.
@@ -37,6 +57,12 @@ export type RegisterToolFn = <TSchema extends AnyZodObject>(
     title: string;
     description: string;
     inputSchema: TSchema;
+    /**
+     * Required. A tool that declares nothing fails to compile, which is the
+     * compile-time half of the coverage guarantee; assertToolCoverage is the
+     * runtime half.
+     */
+    permission: ToolPermission;
   },
   handler: (args: TSchema['_output']) => Promise<ToolResult>,
 ) => void;
