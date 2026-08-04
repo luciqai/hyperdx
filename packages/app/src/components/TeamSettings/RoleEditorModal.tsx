@@ -10,34 +10,23 @@ import { notifications } from '@mantine/notifications';
 
 import api from '@/api';
 import PermissionMatrix from '@/components/TeamSettings/PermissionMatrix';
+import { showApiErrorNotification } from '@/utils/errorNotification';
 
 /**
  * The API answers role conflicts (duplicate name, system role, role still in
  * use) with a message in the JSON body — surface that rather than ky's generic
  * "Request failed with status code 409".
+ *
+ * Retained as a named re-export so its three existing call sites keep working;
+ * the implementation now lives in @/utils/errorNotification, which is shared
+ * with the connection form. Prefer importing that directly in new code — a
+ * general-purpose helper does not belong in a modal component.
  */
 export async function showRoleErrorNotification(
   error: HTTPError,
   fallback: string,
 ) {
-  let message = fallback;
-  try {
-    // Network failures reject with something that has no `response` at all,
-    // even though the mutation types the error as HTTPError.
-    const body: unknown = await error?.response?.json();
-    if (
-      body != null &&
-      typeof body === 'object' &&
-      'message' in body &&
-      typeof body.message === 'string' &&
-      body.message.length > 0
-    ) {
-      message = body.message;
-    }
-  } catch {
-    // Body was not JSON — the fallback already says something useful.
-  }
-  notifications.show({ color: 'red', message, autoClose: 5000 });
+  return showApiErrorNotification(error, fallback);
 }
 
 export default function RoleEditorModal({

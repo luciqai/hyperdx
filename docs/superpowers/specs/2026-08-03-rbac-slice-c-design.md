@@ -325,3 +325,9 @@ in the changeset prose.
   The asymmetry is worth closing.
 - **Slice D** — per-source rules, the last piece of the ClickStack parity story.
 - Harden `DISALLOWED_COLUMNS_PATTERN` (§8.3) or replace it with real parsing.
+
+
+
+! cd ~/hyperdx && . ./scripts/dev-env.sh && cd packages/api && npx dotenvx run --convention=nextjs -- npx nodemon --exec ts-node -r tsconfig-paths/register src/index.ts
+
+! cd ~/hyperdx && . ./scripts/dev-env.sh && cd packages/app && npx dotenvx run --convention=nextjs -- npx next dev --turbopack -p 30296
