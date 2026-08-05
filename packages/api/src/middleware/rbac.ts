@@ -146,10 +146,15 @@ export function resolveVerdict(
   return verdict;
 }
 
+/** How this request authenticated. Anything not tagged is a browser session. */
+function authPathOf(req: Request): AuthPath {
+  return (req as any)._hdx_authPath === 'access-key' ? 'access-key' : 'session';
+}
+
 function verdictFor(req: Request): Verdict {
   return resolveVerdict(
     (req.user as any)?.role ?? null,
-    (req as any)._hdx_authPath === 'access-key' ? 'access-key' : 'session',
+    authPathOf(req),
     (req.user as any)?._id?.toString(),
   );
 }
@@ -218,19 +223,18 @@ export function noPermissionRequired(
  * The same predicate `requireAdmin()` gates on, for handlers that need to
  * *shape* a response by admin-ness rather than reject the request.
  *
- * Deliberately mirrors `resolveVerdict` rather than calling it: that function
- * increments `hyperdx.rbac.missing_role`, which must fire exactly once per
- * request. Calling it a second time to read admin-ness would double-count
- * every role-less request.
+ * Uses `computeVerdict`, not `resolveVerdict`, because the handler calling this
+ * has already been through a gate that resolved the verdict for this request.
+ * `resolveVerdict` increments `hyperdx.rbac.missing_role`, which must fire
+ * exactly once per request; resolving a second time to read admin-ness would
+ * double-count every role-less request. `computeVerdict` is the same decision
+ * with the telemetry stripped out.
+ *
+ * `'check'` — has a role, but not an admin one — is not admin-ness: admin is
+ * not expressible as a permission, so only `'allow'` qualifies.
  */
 export function isEffectiveAdmin(req: Request): boolean {
-  if (config.IS_LOCAL_APP_MODE) return true;
-
-  const role = (req.user as any)?.role ?? null;
-  if (role == null) {
-    // Session fail-open, access-key fail-closed — slice C §7.
-    return (req as any)._hdx_authPath !== 'access-key';
-  }
-
-  return role.isAdmin === true;
+  return (
+    computeVerdict((req.user as any)?.role ?? null, authPathOf(req)) === 'allow'
+  );
 }
