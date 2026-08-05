@@ -1798,15 +1798,30 @@ a future misread."
 
 - [ ] **Step 1: Add the field to the shared schema**
 
-In `packages/common-utils/src/types.ts`, add to the object containing `connection: z.string(),` (line 1265), immediately after it:
+**Do not use the `connection: z.string()` at line 1265 — that belongs to `_ChartConfigSchema`, not to sources.** Sources are a discriminated union: `BaseSourceSchema` (~line 1820) is extended by `LogSourceSchema`, `TraceSourceSchema`, `SessionSourceSchema`, `MetricSourceSchema` and `PromqlSourceSchema`, and `SourceSchema` (line 1916) is the union of those five.
+
+Add the field to **`BaseSourceSchema`**, so all five variants inherit it:
 
 ```ts
   /**
-   * Display-only, populated by GET /sources. Lets the sources list render a
-   * connection's name without holding connections:read — which Member and
-   * ReadOnly do not (BUG-5).
+   * Display-only, derived server-side by GET /sources. Lets the sources list
+   * render a connection's name without holding connections:read — which
+   * Member and ReadOnly do not (BUG-5). Never accepted on writes; see
+   * SourceSchemaNoId below.
    */
   connectionName: z.string().nullable().optional(),
+```
+
+Then omit it from the write schema alongside `id`, which is already omitted for the same reason — it is server-assigned, not client-supplied. `SourceSchemaNoId` becomes:
+
+```ts
+export const SourceSchemaNoId = z.discriminatedUnion('kind', [
+  LogSourceSchema.omit({ id: true, connectionName: true }),
+  TraceSourceSchema.omit({ id: true, connectionName: true }),
+  SessionSourceSchema.omit({ id: true, connectionName: true }),
+  MetricSourceSchema.omit({ id: true, connectionName: true }),
+  PromqlSourceSchema.omit({ id: true, connectionName: true }),
+]);
 ```
 
 Then rebuild:
