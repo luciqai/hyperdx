@@ -34,8 +34,11 @@
 - Test: `packages/api/src/mcp/__tests__/registerPrompt.test.ts`
 
 **Interfaces:**
-- Consumes: `checkToolPermission(role, permission, userId)` from `@/mcp/utils/permission`, returning `{ ok: true } | { ok: false; message: string }`.
+- Consumes: `resolveVerdict(role, authPath, actorId)` from `@/middleware/rbac`.
 - Produces: `createRegisterPrompt(server, context, declared?): RegisterPromptFn` and `type DeclaredPrompts = Map<string, ToolPermission>` from `@/mcp/utils/registerPrompt`; types `RegisterPromptFn`, `PromptRegistrar`, and the changed `PromptDefinition` from `@/mcp/tools/types`.
+- Also produces, in `@/mcp/utils/permission`: `checkPermissionForVerdict(verdict, role, permission)` — the side-effect-free core split out of `checkToolPermission`, which becomes a thin wrapper that resolves the verdict and delegates. `checkToolPermission`'s behaviour must not change; `registerTool.ts` and `permission.test.ts` are the regression guard. Also `recordPromptDenial(name, permission)`, a counter `hyperdx.mcp.prompt.denied` mirroring `recordToolDenial`.
+
+> **Why the split:** `resolveVerdict` increments `hyperdx.rbac.missing_role` and logs a WARN. That counter counts *requests*, and the MCP server is rebuilt per POST — so resolving the verdict inside the per-prompt registration closure fires it once per prompt, three times per request for a role-less caller. This violates the Global Constraint above.
 
 - [ ] **Step 1: Replace the `PromptDefinition` type**
 
@@ -236,7 +239,9 @@ import type {
   ToolPermission,
 } from '@/mcp/tools/types';
 
-import { checkToolPermission } from './permission';
+import { resolveVerdict } from '@/middleware/rbac';
+
+import { checkPermissionForVerdict, recordPromptDenial } from './permission';
 
 /**
  * Permissions declared during prompt registration, keyed by prompt name.
@@ -259,6 +264,14 @@ export function createRegisterPrompt(
   context: McpContext,
   declared: DeclaredPrompts = new Map(),
 ): RegisterPromptFn {
+  // Resolve the verdict ONCE per registrar, not once per prompt.
+  // `resolveVerdict` increments `hyperdx.rbac.missing_role` and logs a WARN,
+  // and that counter counts *requests*. The MCP server is rebuilt per POST, so
+  // calling it inside the loop below would fire it once per registered prompt —
+  // three times per request for a role-less caller. `checkPermissionForVerdict`
+  // is side-effect-free, so calling that per prompt is free.
+  const verdict = resolveVerdict(context.role, 'access-key', context.userId);
+
   return (name, config, handler) => {
     // `permission` must NOT reach the SDK: it serialises `config` into the
     // prompt manifest advertised to clients, which would publish the whole
@@ -267,20 +280,22 @@ export function createRegisterPrompt(
     const { permission, ...sdkConfig } = config;
     declared.set(name, permission);
 
-    // The server is constructed per connection with the caller's role, so the
-    // decision is fixed for this server's lifetime — evaluate it once.
-    const decision = checkToolPermission(
-      context.role,
-      permission,
-      context.userId,
-    );
+    const decision = checkPermissionForVerdict(verdict, context.role, permission);
 
     const guarded = async (args: any) => {
       // Prompts return `{ messages }`, so there is no isError result shape to
       // carry a denial the way mcpUserError does for tools — throwing is the
       // protocol-level answer. Prompts are not wrapped by withToolTracing, so
       // this reaches no alerting path.
-      if (!decision.ok) throw new Error(decision.message);
+      //
+      // The denial metric fires HERE, on an actual attempted call — matching
+      // recordToolDenial. Recording it at registration instead would count a
+      // passive non-event on every request an under-permissioned role makes,
+      // and miss the real "someone tried and was refused".
+      if (!decision.ok) {
+        recordPromptDenial(name, permission);
+        throw new Error(decision.message);
+      }
       return handler(args);
     };
 
