@@ -1735,8 +1735,13 @@ export const BaseSourceSchema = z.object({
   /**
    * Display-only, derived server-side by GET /sources. Lets the sources list
    * render a connection's name without holding connections:read — which
-   * Member and ReadOnly do not (BUG-5). Never accepted on writes; see
-   * SourceSchemaNoId below.
+   * Member and ReadOnly do not (BUG-5).
+   *
+   * Never *persisted* from a write. `SourceSchemaNoId` below omits it, so
+   * `POST /sources` rejects it outright; `PUT /sources/:id` validates against
+   * the full `SourceSchema` and so accepts the key, but it is not on the
+   * Mongoose schema and is dropped before it reaches the database. Treat it as
+   * server-derived on every read regardless of what a client sent.
    */
   connectionName: z.string().nullable().optional(),
   from: z.object({

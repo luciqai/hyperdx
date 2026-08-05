@@ -284,9 +284,21 @@ Hiding the section from Member and ReadOnly was rejected: ClickStack's ReadOnly 
 Sources, and a permission model where a `read` grant produces an error page is broken
 regardless of which gate you tighten.
 
-The source **editor's** connection picker still needs the full list. That is
-`sources: manage` territory, reachable with `connections: none` only by a custom role,
-so that one control degrades gracefully rather than driving the whole design.
+The source **editor's** connection picker still needs the full list, and it is reached
+through two controls on the list: the per-source expand chevron and the "Add source"
+button.
+
+**Correction (post-implementation).** An earlier draft of this section justified leaving
+those two controls ungated by claiming the editor was "reachable with `connections: none`
+only by a custom role". That was wrong. `SYSTEM_ROLE_PERMISSIONS` gives **both Member and
+ReadOnly** `sources: read` with `connections: none`, so both stock non-admin roles reached
+the editor, got an empty connection picker, and would have been 403'd on save. Removing
+the list's `/connections` dependency fixed the reported red banner but left that second
+surface advertising a write the server rejects, which §7's rule forbids.
+
+Both controls are therefore gated on `can('sources','manage')` in `SourcesList.tsx` —
+absent, not disabled, per §7 — along with the `#source-<id>` deep link that expands the
+editor without going through the chevron.
 
 ### 6.2 BUG-6 — the promised loud startup warning does not exist
 
@@ -301,6 +313,15 @@ per-request, un-aggregated, and accrued 128+ lines in hours of probing.
   `User.countDocuments({ role: { $in: [null, undefined] } })`. If non-zero, emit a WARN
   naming the count and the remedy, and record a `hyperdx.rbac.users_without_role` gauge.
   Zero is not logged — a clean boot stays clean.
+
+  **Deviation as shipped.** The instrument is a **counter** named
+  `hyperdx.rbac.users_without_role_at_boot`, not a gauge named
+  `hyperdx.rbac.users_without_role`. `packages/api/src/utils/instrumentation.ts` exposes
+  `getCounter` and `getHistogram` but no gauge helper, and adding one for a single
+  once-per-process observation was not worth the surface. A counter incremented once at
+  boot carries the same information for this purpose — the value is a boot-time snapshot
+  either way — and the `_at_boot` suffix keeps the name honest about that, distinguishing
+  it from the per-request `hyperdx.rbac.missing_role`. Revisit if a gauge helper lands.
 - The per-request WARN is deduplicated per `userId` per process, so the signal survives
   and the noise does not. `hyperdx.rbac.missing_role` keeps counting every request; the
   counter is the durable half and must not be deduplicated.
@@ -459,7 +480,7 @@ Recorded here rather than edited into the shipped documents.
 | Slice A | §8, `clickhouseProxy.ts` / `prometheus.ts` tables | `GET`/`POST /*` and all five prometheus routes become `sources: read`. |
 | Slice A | §7.1 | `'query-path-slice-B'` removed from `RbacExemptReason`. |
 | Slice A | §9.2, first invariant | Unchanged in wording; §5.1 makes the implementation match it. The guard applies to users **holding** an `isAdmin` role, which is what it always said. |
-| Slice A | §11.3 | The "loud startup warning" is now a real boot-time count and gauge (§6.2), not only a per-request log. |
+| Slice A | §11.3 | The "loud startup warning" is now a real boot-time count plus a boot-time metric (§6.2 — a counter, not the gauge originally specified), not only a per-request log. |
 | Slice C | §8.3 | Restate: the expression guard is **defence-in-depth, not a security boundary.** Comment stripping and coverage of `where` and `/charts/series` close the demonstrated bypasses; the class stays open until slice B constrains it at the database layer. |
 | Slice C | §9, Prompts | Prompts are registered through a guarded chokepoint and **hidden** from `prompts/list` for roles that cannot reach them, rather than refused on call. |
 
