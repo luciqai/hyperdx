@@ -28,7 +28,6 @@ import {
 } from '@tabler/icons-react';
 
 import { IS_LOCAL_MODE } from '@/config';
-import { useConnections } from '@/connection';
 import { useSources } from '@/source';
 import { capitalizeFirstLetter } from '@/utils';
 
@@ -60,15 +59,9 @@ export function SourcesList({
   showEmptyState = true,
 }: SourcesListProps) {
   const {
-    data: connections,
-    isLoading: isLoadingConnections,
-    error: connectionsError,
-    refetch: refetchConnections,
-  } = useConnections();
-  const {
     data: sources,
-    isLoading: isLoadingSources,
-    error: sourcesError,
+    isLoading,
+    error,
     refetch: refetchSources,
   } = useSources();
 
@@ -79,8 +72,6 @@ export function SourcesList({
   // `#source-<id>` anchor.
   const router = useRouter();
   const expandedFromHashRef = useRef<string | null>(null);
-  const isLoading = isLoadingConnections || isLoadingSources;
-  const error = connectionsError || sourcesError;
 
   useEffect(() => {
     if (!router.isReady || isLoading || error) return;
@@ -114,7 +105,6 @@ export function SourcesList({
   }, [router, sources, isLoading, error]);
 
   const handleRetry = () => {
-    refetchConnections();
     refetchSources();
   };
 
@@ -222,7 +212,7 @@ export function SourcesList({
                     )}
                     <Group gap={4}>
                       <IconServer size={iconSize} />
-                      {connections?.find(c => c.id === s.connection)?.name}
+                      {s.connectionName}
                     </Group>
                     <Group gap={4}>
                       {s.from && (

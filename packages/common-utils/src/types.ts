@@ -1732,6 +1732,13 @@ export const BaseSourceSchema = z.object({
   section: z.string().max(256).optional(),
   kind: z.nativeEnum(SourceKind),
   connection: z.string().min(1, 'Server Connection is required'),
+  /**
+   * Display-only, derived server-side by GET /sources. Lets the sources list
+   * render a connection's name without holding connections:read — which
+   * Member and ReadOnly do not (BUG-5). Never accepted on writes; see
+   * SourceSchemaNoId below.
+   */
+  connectionName: z.string().nullable().optional(),
   from: z.object({
     databaseName: z.string().min(1, 'Database is required'),
     tableName: z.string().min(1, 'Table is required'),
@@ -1923,11 +1930,11 @@ export const SourceSchema = z.discriminatedUnion('kind', [
 export type TSource = z.infer<typeof SourceSchema>;
 
 export const SourceSchemaNoId = z.discriminatedUnion('kind', [
-  LogSourceSchema.omit({ id: true }),
-  TraceSourceSchema.omit({ id: true }),
-  SessionSourceSchema.omit({ id: true }),
-  MetricSourceSchema.omit({ id: true }),
-  PromqlSourceSchema.omit({ id: true }),
+  LogSourceSchema.omit({ id: true, connectionName: true }),
+  TraceSourceSchema.omit({ id: true, connectionName: true }),
+  SessionSourceSchema.omit({ id: true, connectionName: true }),
+  MetricSourceSchema.omit({ id: true, connectionName: true }),
+  PromqlSourceSchema.omit({ id: true, connectionName: true }),
 ]);
 export type TSourceNoId = z.infer<typeof SourceSchemaNoId>;
 

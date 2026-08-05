@@ -6,6 +6,7 @@ import express from 'express';
 import { z } from 'zod';
 import { validateRequest } from 'zod-express-middleware';
 
+import { getConnectionsByTeam } from '@/controllers/connection';
 import {
   createSource,
   deleteSource,
@@ -25,13 +26,27 @@ router.get(
     try {
       const { teamId } = getNonNullUserWithTeam(req);
 
-      const sources = await getSources(teamId.toString());
+      // BUG-5. The list view previously fetched /connections itself just to
+      // render a name, which requires connections:read — `none` for Member and
+      // ReadOnly, so a sources:read grant produced a permanent 403 banner.
+      // Resolving the name here keeps the section's data need inside its own
+      // gate.
+      const [sources, connections] = await Promise.all([
+        getSources(teamId.toString()),
+        getConnectionsByTeam(teamId.toString()),
+      ]);
+
+      const connectionNameById = new Map(
+        connections.map(c => [c._id.toString(), c.name]),
+      );
 
       return res.json(
-        sources.map(
+        sources.map(source => ({
           // @ts-expect-error source.toJSON has incompatible type signatures but is actually a safe operation
-          source => source.toJSON({ getters: true }),
-        ),
+          ...source.toJSON({ getters: true }),
+          connectionName:
+            connectionNameById.get(source.connection?.toString()) ?? null,
+        })),
       );
     } catch (e) {
       next(e);
