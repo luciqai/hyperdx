@@ -129,6 +129,67 @@ describe('add_rbac_roles migration', () => {
     expect(roles[0].isSystem).toBe(false);
   });
 
+  // Regression: the pre-flight scan is unscoped by team and runs before the
+  // teams loop starts, so a collision in one team must leave every team
+  // untouched — not just the offending one. A per-team check placed inside
+  // the loop would still seed (and assign roles to users of) any team
+  // processed before the conflicting one; only a global pre-flight prevents
+  // that.
+  it('aborts atomically across teams: a collision in one team leaves a clean team fully unseeded too', async () => {
+    const db = mongooseConnection.db!;
+    const cleanTeam = new Types.ObjectId();
+    const conflictTeam = new Types.ObjectId();
+
+    await db.collection('teams').insertMany([
+      { _id: cleanTeam, name: 'Clean' },
+      { _id: conflictTeam, name: 'Conflict' },
+    ]);
+    await db.collection('roles').insertOne({
+      team: conflictTeam,
+      name: 'Admin',
+      isSystem: false,
+      isAdmin: false,
+      permissions: {},
+    });
+    await db.collection('users').insertMany([
+      { email: 'clean@x.com', team: cleanTeam, accessKey: 'key-clean' },
+      {
+        email: 'conflict@x.com',
+        team: conflictTeam,
+        accessKey: 'key-conflict',
+      },
+    ]);
+
+    await expect(migration.up(db)).rejects.toThrow(/aborted before any write/);
+
+    // The clean team got nothing seeded at all.
+    const cleanRoles = await db
+      .collection('roles')
+      .find({ team: cleanTeam })
+      .toArray();
+    expect(cleanRoles).toHaveLength(0);
+
+    // The conflicting team still has only its original, pre-existing role.
+    const conflictRoles = await db
+      .collection('roles')
+      .find({ team: conflictTeam })
+      .toArray();
+    expect(conflictRoles).toHaveLength(1);
+    expect(conflictRoles[0].name).toBe('Admin');
+    expect(conflictRoles[0].isSystem).toBe(false);
+
+    // No user in either team was assigned a role.
+    const cleanUser = await db
+      .collection('users')
+      .findOne({ email: 'clean@x.com' });
+    expect(cleanUser!.role).toBeUndefined();
+
+    const conflictUser = await db
+      .collection('users')
+      .findOne({ email: 'conflict@x.com' });
+    expect(conflictUser!.role).toBeUndefined();
+  });
+
   it('names the offending team and role in the error', async () => {
     const db = mongooseConnection.db!;
     const teamId = new Types.ObjectId();
