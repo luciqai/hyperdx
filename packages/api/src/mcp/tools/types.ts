@@ -3,8 +3,11 @@ import type {
   Resource,
 } from '@hyperdx/common-utils/dist/types';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
-import type { AnyZodObject } from 'zod';
+import type {
+  CallToolResult,
+  GetPromptResult,
+} from '@modelcontextprotocol/sdk/types.js';
+import type { AnyZodObject, ZodTypeAny } from 'zod';
 
 import type { McpClientInfo } from '@/mcp/utils/mcpClient';
 import type { RoleLike } from '@/middleware/rbac';
@@ -75,4 +78,35 @@ export type ToolRegistrar = {
 
 export type ToolDefinition = (registrar: ToolRegistrar) => void;
 
-export type PromptDefinition = (server: McpServer, context: McpContext) => void;
+/**
+ * Prompt argument shapes are raw Zod shapes, not a ZodObject. The SDK's own
+ * generics over them do not compose with our wrapper without a cast, so the
+ * handler's args are deliberately loose here — the same pragmatic choice
+ * documented on RegisterToolFn's SDK generics.
+ */
+export type PromptArgsShape = Record<string, ZodTypeAny>;
+
+export type RegisterPromptFn = (
+  name: string,
+  config: {
+    title: string;
+    description: string;
+    argsSchema?: PromptArgsShape;
+    /**
+     * Required. A prompt that declares nothing fails to compile, which is the
+     * compile-time half of the coverage guarantee; assertMcpCoverage is the
+     * runtime half. Prompts enumerate real source and connection names, so
+     * they are a permissioned surface exactly like tools (SEC-1).
+     */
+    permission: ToolPermission;
+  },
+  handler: (args: any) => Promise<GetPromptResult>,
+) => void;
+
+export type PromptRegistrar = {
+  server: McpServer;
+  context: McpContext;
+  registerPrompt: RegisterPromptFn;
+};
+
+export type PromptDefinition = (registrar: PromptRegistrar) => void;
