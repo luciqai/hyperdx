@@ -32,13 +32,21 @@ const defaultRateLimiter = rateLimiter({
 //
 // `skipSuccessfulRequests` is what makes this a *failed-attempt* meter rather
 // than a second traffic limiter. Without it, a shared origin — one NAT, one
-// corporate proxy, one CI runner — spends this 300/min budget on legitimate
+// corporate proxy, one CI runner — spends this budget on legitimate
 // authenticated traffic, and four users each staying inside their own 100/min
 // `defaultRateLimiter` allowance would 429 the whole /api/v2 surface for
 // everyone behind that IP. Throughput is governed per-user, behind auth.
+//
+// Because the budget counts *only failures*, 30/min is generous rather than
+// tight: a legitimate client essentially never fails authentication — a failed
+// bearer means a wrong or revoked key — so legitimate traffic never touches
+// this bucket at all. The ceiling therefore has to sit far below any plausible
+// guessing volume, not near normal request volume. BUG-8's reported
+// reproduction was 105 distinct garbage bearers in one window; a limit above
+// that still returns zero 429s no matter how correct the keying is.
 const authAttemptRateLimiter = rateLimiter({
   windowMs: 60 * 1000,
-  max: 300,
+  max: 30,
   standardHeaders: true,
   legacyHeaders: false,
   skipSuccessfulRequests: true,

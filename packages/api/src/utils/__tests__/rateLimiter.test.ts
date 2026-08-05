@@ -1,4 +1,5 @@
 import {
+  ipBucket,
   ipOnlyKeyGenerator,
   rateLimiterKeyGenerator,
 } from '@/utils/rateLimiter';
@@ -45,5 +46,69 @@ describe('ipOnlyKeyGenerator', () => {
     expect(ipOnlyKeyGenerator(req({ user: { _id: 'a' } }))).toBe(
       ipOnlyKeyGenerator(req({ headers: { authorization: 'Bearer zzz' } })),
     );
+  });
+
+  it('collapses an IPv6 /64 to one bucket', () => {
+    expect(ipOnlyKeyGenerator(req({ ip: '2001:db8:1:2::1' }))).toBe(
+      ipOnlyKeyGenerator(req({ ip: '2001:db8:1:2:ffff:ffff:ffff:ffff' })),
+    );
+  });
+});
+
+// A /64 is a normal single-host IPv6 allocation. Keying on the full address
+// gives one attacker 2^64 free buckets — BUG-8's "one bucket per attempt"
+// shape, relocated from the Authorization header to the source address.
+describe('ipBucket', () => {
+  it('leaves IPv4 addresses untouched', () => {
+    expect(ipBucket('203.0.113.9')).toBe('203.0.113.9');
+    expect(ipBucket('10.0.0.1')).toBe('10.0.0.1');
+  });
+
+  it('collapses two addresses in the same /64 to one key', () => {
+    expect(ipBucket('2001:db8:1:2::1')).toBe(
+      ipBucket('2001:db8:1:2:ffff:ffff:ffff:ffff'),
+    );
+    expect(ipBucket('2001:db8:1:2::1')).toBe('2001:db8:1:2::/64');
+  });
+
+  it('keeps two distinct /64s in distinct keys', () => {
+    expect(ipBucket('2001:db8:1:2::1')).not.toBe(ipBucket('2001:db8:1:3::1'));
+    expect(ipBucket('2001:db8:1:2::1')).not.toBe(ipBucket('2001:db8::1'));
+  });
+
+  it('normalises equivalent spellings of the same prefix', () => {
+    // Leading zeros, case, and `::` elision are all cosmetic; two spellings of
+    // one prefix must not buy two buckets.
+    expect(ipBucket('2001:0DB8:0001:0002::1')).toBe(
+      ipBucket('2001:db8:1:2::9'),
+    );
+    expect(ipBucket('2001:db8:0:0:0:0:0:1')).toBe(ipBucket('2001:db8::2'));
+  });
+
+  it('treats an IPv4-mapped IPv6 address as its IPv4 host', () => {
+    // Node reports IPv4 peers on a dual-stack socket this way. Bucketing it as
+    // a /64 would collapse every IPv4 client into a single bucket.
+    expect(ipBucket('::ffff:203.0.113.9')).toBe('203.0.113.9');
+    expect(ipBucket('::ffff:203.0.113.9')).toBe(ipBucket('203.0.113.9'));
+    expect(ipBucket('::ffff:203.0.113.9')).not.toBe(
+      ipBucket('::ffff:198.51.100.4'),
+    );
+  });
+
+  it('handles a zone index and a bracketed literal', () => {
+    expect(ipBucket('fe80::1%eth0')).toBe('fe80:0:0:0::/64');
+    expect(ipBucket('[2001:db8:1:2::1]')).toBe('2001:db8:1:2::/64');
+  });
+
+  it('handles a missing req.ip without throwing', () => {
+    expect(ipBucket(undefined)).toBe('unknown');
+    expect(ipBucket('')).toBe('unknown');
+  });
+
+  it('falls back to exact keying on an unparseable address', () => {
+    // No worse than the pre-fix behaviour, and never invents a shared bucket
+    // that a valid address could also land in.
+    expect(ipBucket('2001:db8::nonsense::1')).toBe('2001:db8::nonsense::1');
+    expect(ipBucket('2001:db8:1:2:3:4:5')).toBe('2001:db8:1:2:3:4:5');
   });
 });

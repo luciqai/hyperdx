@@ -30,13 +30,19 @@ const mcpRateLimiter = rateLimiter({
 //
 // `skipSuccessfulRequests` keeps it a failed-attempt meter rather than a
 // second traffic limiter: agents behind one NAT would otherwise share this
-// 900/min origin budget for successful calls while each stays well inside its
-// own `mcpRateLimiter` allowance. Throughput is governed per-user, behind
-// auth. Note the 405 responses above are errors, so probing GET/DELETE still
-// counts.
+// origin budget for successful calls while each stays well inside its own
+// `mcpRateLimiter` allowance. Throughput is governed per-user, behind auth.
+// Note the 405 responses above are errors, so probing GET/DELETE still counts.
+//
+// Because the budget counts *only failures*, 30/min is generous rather than
+// tight: a legitimate MCP client essentially never fails authentication — a
+// failed bearer means a wrong or revoked key — so legitimate traffic never
+// touches this bucket. The ceiling has to sit far below any plausible guessing
+// volume (BUG-8's reproduction was 105 garbage bearers in one window), not near
+// normal request volume.
 const mcpAuthAttemptRateLimiter = rateLimiter({
   windowMs: 60 * 1000,
-  max: 900,
+  max: 30,
   standardHeaders: true,
   legacyHeaders: false,
   skipSuccessfulRequests: true,
