@@ -28,6 +28,7 @@ import {
 } from '@tabler/icons-react';
 
 import { IS_LOCAL_MODE } from '@/config';
+import { useMyPermissions } from '@/hooks/useMyPermissions';
 import { useSources } from '@/source';
 import { capitalizeFirstLetter } from '@/utils';
 
@@ -67,6 +68,16 @@ export function SourcesList({
 
   const [editedSourceId, setEditedSourceId] = useState<string | null>(null);
   const [isCreatingSource, setIsCreatingSource] = useState(false);
+
+  /**
+   * The list itself needs only `sources: read`, but both controls that reveal
+   * `TableSourceForm` need more than that: the form calls `useConnections()`,
+   * which Member and ReadOnly hold as `connections: none`, and saving from it
+   * 403s. Absent, not disabled — §10.3: the UI must never advertise an action
+   * the server will reject.
+   */
+  const { can } = useMyPermissions();
+  const canManageSources = can('sources', 'manage');
 
   // Expand and scroll to the relevant source when the URL includes a
   // `#source-<id>` anchor.
@@ -227,21 +238,26 @@ export function SourcesList({
                   </Group>
                 </Text>
               </div>
-              <ActionIcon
-                variant="secondary"
-                size={buttonSize}
-                onClick={() =>
-                  setEditedSourceId(editedSourceId === s.id ? null : s.id)
-                }
-              >
-                {editedSourceId === s.id ? (
-                  <IconChevronUp size={iconSize + 2} />
-                ) : (
-                  <IconChevronDown size={iconSize + 2} />
-                )}
-              </ActionIcon>
+              {canManageSources && (
+                <ActionIcon
+                  variant="secondary"
+                  size={buttonSize}
+                  data-testid={`expand-source-${s.id}`}
+                  onClick={() =>
+                    setEditedSourceId(editedSourceId === s.id ? null : s.id)
+                  }
+                >
+                  {editedSourceId === s.id ? (
+                    <IconChevronUp size={iconSize + 2} />
+                  ) : (
+                    <IconChevronDown size={iconSize + 2} />
+                  )}
+                </ActionIcon>
+              )}
             </Flex>
-            {editedSourceId === s.id && (
+            {/* Also gated: the `#source-<id>` deep link above expands without
+                going through the chevron. */}
+            {canManageSources && editedSourceId === s.id && (
               <Box mt="xs">
                 <TableSourceForm
                   sourceId={s.id}
@@ -264,7 +280,7 @@ export function SourcesList({
           </>
         )}
 
-        {!IS_LOCAL_MODE && !isCreatingSource && (
+        {!IS_LOCAL_MODE && !isCreatingSource && canManageSources && (
           <Flex
             justify="flex-end"
             pt={sources && sources.length > 0 ? 'md' : 0}
@@ -272,6 +288,7 @@ export function SourcesList({
             <Button
               variant="secondary"
               size={buttonSize}
+              data-testid="add-source-button"
               leftSection={<IconPlus size={14} />}
               onClick={() => {
                 setIsCreatingSource(true);

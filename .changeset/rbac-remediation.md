@@ -39,7 +39,12 @@ user exists; the RBAC Mongo migration aborts cleanly instead of half-seeding a
 team whose roles collide by name; concurrent team creation can no longer
 produce duplicate Admin roles; four UI surfaces no longer offer writes the
 server rejects; the Team Settings Sources view no longer 403s for Member and
-ReadOnly; role-less users are counted and warned about at startup; API rate
+ReadOnly, and its source editor — reached via the expand chevron and the "Add
+source" button, both of which open a form that needs `connections: read` and
+403s on save — is now hidden from roles without `sources: manage`; the
+last-admin and no-admin-role conflict messages are now phrased consistently for
+both the "changing" and "removing" cases; role-less users are counted and
+warned about at startup; API rate
 limiting no longer gives each guessed access key its own bucket, and IPv6
 origins are now bucketed by /64 so a single host's address range cannot buy
 itself unlimited buckets; the `/api/v2/search` and `/api/v2/charts` expression

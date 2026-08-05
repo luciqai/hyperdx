@@ -9,6 +9,16 @@ jest.mock('next/router', () => ({
 }));
 jest.mock('@/source', () => ({ useSources: jest.fn() }));
 jest.mock('@/config', () => ({ IS_LOCAL_MODE: false }));
+// The list's manage-only controls consult this; the hook itself reaches for
+// `api.useMe()`, which needs a QueryClient this display-focused test has no
+// reason to stand up. Gating is covered in SourcesListPermissions.test.tsx.
+jest.mock('@/hooks/useMyPermissions', () => ({
+  useMyPermissions: () => ({
+    isAdmin: true,
+    isLoading: false,
+    can: () => true,
+  }),
+}));
 jest.mock('@/utils', () => ({
   capitalizeFirstLetter: (s: string) => s.charAt(0).toUpperCase() + s.slice(1),
 }));
