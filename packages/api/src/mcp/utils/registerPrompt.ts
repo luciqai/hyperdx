@@ -56,9 +56,16 @@ export function createRegisterPrompt(
     ).ok;
 
     const guarded = async (args: any) => {
-      // Enforcement decision, taken on an actual `prompts/get`. This is where
-      // the request genuinely consults a permission, so this is where the
-      // gate records — once, however many prompts the request touches.
+      // Enforcement backstop only. In production this branch is unreachable for
+      // a denied prompt: `disable()` below makes the SDK's `prompts/get`
+      // handler throw `Prompt <name> disabled` before it ever reaches the
+      // callback. It is kept because it is the thing that would still refuse if
+      // the SDK's disable semantics ever changed, and because `listable` and
+      // this check must not be allowed to drift apart.
+      //
+      // It deliberately does NOT call recordPromptDenial — that would
+      // double-count the moment the branch did become reachable. The denial is
+      // recorded at the listing decision instead; see below.
       const decision = checkPermissionForVerdict(
         gate.get(),
         context.role,
@@ -70,12 +77,6 @@ export function createRegisterPrompt(
       // protocol-level answer. Prompts are not wrapped by withToolTracing, so
       // this reaches no alerting path.
       if (!decision.ok) {
-        // Mirrors registerTool.ts: the metric fires on an actual attempted
-        // call, not on registration. The server is rebuilt per HTTP request,
-        // so recording at registration/disable time would count once per
-        // denied prompt on every request from an under-permissioned role,
-        // even when the client never lists or requests it.
-        recordPromptDenial(name, permission);
         throw new Error(decision.message);
       }
       return handler(args);
@@ -86,9 +87,28 @@ export function createRegisterPrompt(
     // ClickStack's rule: a resource a role cannot reach is hidden from it
     // entirely, not advertised and then refused. Disabling keeps it out of
     // prompts/list while leaving it in _registeredPrompts, so the coverage
-    // assertion still sees it. `guarded` remains the enforcement backstop for
-    // a client calling a cached name, and is where the denial metric fires.
+    // assertion still sees it.
     if (!listable) {
+      // The denial has to be recorded HERE, not in `guarded`. The SDK's
+      // GetPrompt handler rejects a disabled prompt before invoking the
+      // callback, so a metric inside `guarded` can never fire in production for
+      // exactly the case it exists to record — `hyperdx.mcp.prompt.denied` was
+      // dead. This is the last point at which the RBAC decision is ours to
+      // observe.
+      //
+      // Cardinality: `createServer` runs once per HTTP POST, so this counts
+      // once per denied prompt per POST — including on `initialize`, `ping` and
+      // `tools/list`, which never touch a prompt. The counter therefore means
+      // "denied prompt registrations", which is what its description has always
+      // said, and not "attempted prompt gets". `prompt` and `permission` are
+      // both low-cardinality, so the attribute set is unchanged.
+      //
+      // It is emphatically NOT `gate.get()`: recording the *metric* here is
+      // cheap, but resolving the verdict here would fire
+      // `hyperdx.rbac.missing_role` on every POST regardless of JSON-RPC
+      // method, which is the defect the previous commit fixed and which
+      // missingRoleCounter.test.ts pins.
+      recordPromptDenial(name, permission);
       registered.disable();
     }
   };
