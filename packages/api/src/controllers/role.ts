@@ -19,27 +19,60 @@ export class RoleConflictError extends Error {
   }
 }
 
+/**
+ * Mongoose builds indexes in the background, so the {team, name} unique index
+ * may not exist yet during the first registration on a fresh database — the
+ * exact window BUG-4 reproduced, where 12 parallel seeds produced duplicate
+ * Admin roles in 7 of 20 trials. Once duplicates exist the index can never
+ * build, which also wedges the migration's own createIndex.
+ *
+ * Memoised: only the first caller in the process waits.
+ */
+let roleIndexesReady: Promise<unknown> | null = null;
+function ensureRoleIndexes(): Promise<unknown> {
+  roleIndexesReady ??= Role.init();
+  return roleIndexesReady;
+}
+
 export async function seedSystemRoles(
   teamId: string | ObjectId,
 ): Promise<RoleDocument[]> {
+  await ensureRoleIndexes();
+
   const created: RoleDocument[] = [];
 
   for (const name of SYSTEM_ROLE_NAMES) {
-    const role = await Role.findOneAndUpdate(
-      { team: teamId, name },
-      {
-        $setOnInsert: {
-          team: teamId,
-          name,
-          description: SYSTEM_ROLE_DESCRIPTIONS[name],
-          isSystem: true,
-          isAdmin: name === 'Admin',
-          permissions: SYSTEM_ROLE_PERMISSIONS[name],
+    let role: RoleDocument | null;
+    try {
+      role = await Role.findOneAndUpdate(
+        { team: teamId, name },
+        {
+          $setOnInsert: {
+            team: teamId,
+            name,
+            description: SYSTEM_ROLE_DESCRIPTIONS[name],
+            isSystem: true,
+            isAdmin: name === 'Admin',
+            permissions: SYSTEM_ROLE_PERMISSIONS[name],
+          },
         },
-      },
-      { upsert: true, new: true, setDefaultsOnInsert: true },
-    );
-    created.push(role);
+        { upsert: true, new: true, setDefaultsOnInsert: true },
+      );
+    } catch (e) {
+      // Two upserts racing a *present* index both attempt the insert and the
+      // loser gets E11000. The document exists either way, so re-read rather
+      // than fail the caller's registration. The index barrier above prevents
+      // duplicate documents; this prevents a duplicate request failing.
+      if (!isDuplicateKey(e)) throw e;
+      role = await Role.findOne({ team: teamId, name });
+      if (!role) throw e;
+    }
+
+    // Non-null by construction: the try branch's overload resolves to a
+    // non-null ResultDoc (upsert+new), and the catch branch throws above
+    // when the re-read comes back empty. TS can't merge that narrowing
+    // across the try/catch boundary.
+    created.push(role!);
   }
 
   return created;
