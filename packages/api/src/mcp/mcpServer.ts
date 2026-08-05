@@ -11,6 +11,7 @@ import sourcesTools from './tools/sources/index';
 import traceTools from './tools/trace/index';
 import { McpContext } from './tools/types';
 import { assertMcpCoverage } from './utils/coverage';
+import { createVerdictGate } from './utils/permission';
 import {
   createRegisterPrompt,
   type DeclaredPrompts,
@@ -28,8 +29,20 @@ export function createServer(context: McpContext) {
 
   const declaredTools: DeclaredPermissions = new Map();
   const declaredPrompts: DeclaredPrompts = new Map();
-  const registerTool = createRegisterTool(server, context, declaredTools);
-  const registerPrompt = createRegisterPrompt(server, context, declaredPrompts);
+
+  // One gate for the whole request. This function runs once per HTTP POST, so
+  // sharing it is what keeps `hyperdx.rbac.missing_role` at exactly one
+  // increment per request that consults a permission — and zero for
+  // `initialize`, `ping` and `tools/list`, which consult none. See
+  // createVerdictGate.
+  const gate = createVerdictGate(context);
+  const registerTool = createRegisterTool(server, context, declaredTools, gate);
+  const registerPrompt = createRegisterPrompt(
+    server,
+    context,
+    declaredPrompts,
+    gate,
+  );
   const registrar = { server, context, registerTool };
 
   sourcesTools(registrar);

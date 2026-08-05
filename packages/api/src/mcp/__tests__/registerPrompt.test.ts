@@ -139,13 +139,14 @@ describe('createRegisterPrompt', () => {
     );
   });
 
-  // Regression for the missing_role-fires-per-prompt defect: the MCP server
-  // is rebuilt per HTTP request and every prompt file registers against it,
-  // so `resolveVerdict` (and the counter/WARN log it drives) must be called
-  // once per request, not once per prompt registered. Nothing before this
-  // test registered more than one prompt per context, which is why the
-  // defect slipped through review.
-  it('resolves the RBAC verdict once per request, not once per prompt', () => {
+  // Regression for the missing_role-fires-per-prompt defect, and for its
+  // follow-up: the MCP server is rebuilt per HTTP request and every prompt
+  // file registers against it, *before* the JSON-RPC method is known. So
+  // registration must not record at all — that attributed a missing-role
+  // event to `initialize`, `ping` and `tools/list`, which consult no
+  // permission — and the guarded handler must record exactly once however
+  // many prompts the request touches.
+  it('records no RBAC verdict at registration time', () => {
     const server = fakeServer();
     const registerPrompt = createRegisterPrompt(server as any, ctx(null));
 
@@ -159,11 +160,30 @@ describe('createRegisterPrompt', () => {
       { title: 'T', description: 'D', permission: 'sources:read' },
       async () => ({ messages: [] }),
     );
+
+    // Still hidden from listing — the decision is taken, just without the
+    // telemetry side effect.
+    expect(server.registered.create_dashboard.handle.enabled).toBe(false);
+    expect(resolveVerdict).not.toHaveBeenCalled();
+  });
+
+  it('resolves the RBAC verdict once per request, not once per prompt call', async () => {
+    const server = fakeServer();
+    const registerPrompt = createRegisterPrompt(server as any, ctx(null));
+
     registerPrompt(
-      'edit_dashboard',
-      { title: 'T', description: 'D', permission: 'dashboards:manage' },
+      'create_dashboard',
+      { title: 'T', description: 'D', permission: 'sources:read' },
       async () => ({ messages: [] }),
     );
+    registerPrompt(
+      'query_guide',
+      { title: 'T', description: 'D', permission: 'sources:read' },
+      async () => ({ messages: [] }),
+    );
+
+    await expect(server.registered.create_dashboard.cb({})).rejects.toThrow();
+    await expect(server.registered.query_guide.cb({})).rejects.toThrow();
 
     expect(resolveVerdict).toHaveBeenCalledTimes(1);
   });

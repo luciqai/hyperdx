@@ -11,7 +11,12 @@ import type {
 } from '@/mcp/tools/types';
 
 import { mcpUserError } from './errors';
-import { checkToolPermission, recordToolDenial } from './permission';
+import {
+  checkPermissionForVerdict,
+  createVerdictGate,
+  recordToolDenial,
+  type VerdictGate,
+} from './permission';
 import { withToolTracing } from './tracing';
 
 /**
@@ -29,11 +34,17 @@ export type DeclaredPermissions = Map<string, ToolPermission>;
  * The returned function wraps every handler with a permission check and
  * `withToolTracing`, so individual tool files don't need to import or call
  * either.
+ *
+ * `gate` should be the same gate the prompt registrar gets — `createServer`
+ * builds one per request — so `hyperdx.rbac.missing_role` fires once for the
+ * whole request rather than once per tool invoked and once again for the
+ * prompts. Defaulted so a test can construct this registrar alone.
  */
 export function createRegisterTool(
   server: McpServer,
   context: McpContext,
   declared: DeclaredPermissions = new Map(),
+  gate: VerdictGate = createVerdictGate(context),
 ): RegisterToolFn {
   return (name, config, handler) => {
     // `permission` must NOT reach the SDK: it serialises `config` into the
@@ -43,10 +54,13 @@ export function createRegisterTool(
     declared.set(name, permission);
 
     const guarded = async (args: any) => {
-      const check = checkToolPermission(
+      // `gate.get()` rather than resolving here: this runs on every tool
+      // invocation, and the missing-role counter must not scale with the
+      // number of calls in a request.
+      const check = checkPermissionForVerdict(
+        gate.get(),
         context.role,
         permission,
-        context.userId,
       );
       if (!check.ok) {
         recordToolDenial(name, permission);

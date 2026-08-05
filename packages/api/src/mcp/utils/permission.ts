@@ -5,7 +5,12 @@ import {
 } from '@hyperdx/common-utils/dist/types';
 
 import type { McpContext, ToolPermission } from '@/mcp/tools/types';
-import { resolveVerdict, type RoleLike, type Verdict } from '@/middleware/rbac';
+import {
+  computeVerdict,
+  resolveVerdict,
+  type RoleLike,
+  type Verdict,
+} from '@/middleware/rbac';
 import { getCounter } from '@/utils/instrumentation';
 
 const deniedCounter = getCounter('hyperdx.mcp.tool.denied', {
@@ -76,14 +81,12 @@ export function checkPermissionForVerdict(
  * MCP is always access-key authenticated, so a missing role denies — the
  * browser's fail-open does not apply here (slice C spec §7).
  *
- * Resolves the verdict itself, so it must only be called once per decision —
- * `resolveVerdict` increments `hyperdx.rbac.missing_role` and logs a WARN on
- * every call, and that must fire once per request, not once per check.
- * `registerTool.ts` calls this once per tool invocation, which is the right
- * cardinality. Callers that need the same verdict for several permission
- * checks in one request (the prompt registrar registering multiple prompts
- * per server construction) must resolve the verdict once via `resolveVerdict`
- * and call `checkPermissionForVerdict` directly instead of this wrapper.
+ * Resolves the verdict itself, and therefore fires `resolveVerdict`'s side
+ * effects (`hyperdx.rbac.missing_role` and its WARN) on every call. That must
+ * happen once per request, so the registrars do NOT use this — they share a
+ * `createVerdictGate` instead. This remains the single-shot entry point for
+ * callers that make exactly one decision per request, and the unit-test
+ * surface for the decision logic.
  */
 export function checkToolPermission(
   role: RoleLike,
@@ -95,6 +98,38 @@ export function checkToolPermission(
     role,
     permission,
   );
+}
+
+/**
+ * Reads the verdict, with the side effects deferred to the first *permission
+ * consultation* and then memoised.
+ *
+ * `hyperdx.rbac.missing_role` must fire exactly once per request that consults
+ * a permission, and zero times for requests that consult none. Both MCP
+ * registrars run inside `createServer`, which runs once per HTTP POST —
+ * *before* the JSON-RPC method is known — so neither registration time nor
+ * per-check resolution gives that property on its own:
+ *
+ * - `peek()` has no side effects. Registration uses it, because it happens on
+ *   every POST including `initialize`, `ping` and `tools/list`, which consult
+ *   no permission. It only decides what a client is allowed to see listed.
+ * - `get()` records, once per gate. The guarded tool and prompt handlers use
+ *   it, so a `tools/call` or `prompts/get` counts exactly one missing-role
+ *   event no matter how many tools were registered against the same server.
+ *
+ * Both return the same verdict for the same context — `resolveVerdict` is
+ * `computeVerdict` plus telemetry — so nothing about what the verdict *means*
+ * differs between the listing decision and the enforcement decision.
+ */
+export type VerdictGate = { peek: () => Verdict; get: () => Verdict };
+
+export function createVerdictGate(context: McpContext): VerdictGate {
+  let recorded: Verdict | undefined;
+  return {
+    peek: () => computeVerdict(context.role, 'access-key'),
+    get: () =>
+      (recorded ??= resolveVerdict(context.role, 'access-key', context.userId)),
+  };
 }
 
 /** Records the denial for observability. Tool name is low-cardinality. */

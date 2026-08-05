@@ -95,8 +95,14 @@ function warnMissingRoleOnce(
 }
 
 /**
- * Shared resolution order, cheapest first. Pure so both the Express middleware
- * and the MCP tool wrapper use identical logic.
+ * The verdict itself, with no side effects.
+ *
+ * `resolveVerdict` is exactly this plus the `hyperdx.rbac.missing_role` counter
+ * and its WARN log. Split out for callers that must know the verdict *before*
+ * they know whether the request will actually consult a permission — the MCP
+ * registrars run at server construction, which happens on every HTTP POST
+ * including `initialize`, `ping` and `tools/list`. Counting there attributes a
+ * missing-role event to requests that consult no permission at all.
  *
  * The missing-role branch diverges by auth path deliberately. Slice A's
  * fail-open exists so a self-hosted operator upgrading mid-incident is not
@@ -104,32 +110,40 @@ function warnMissingRoleOnce(
  * browser. An unattended agent holding a Bearer token has no equivalent claim,
  * and silently granting it admin is worse than failing its tool call.
  */
+export function computeVerdict(role: RoleLike, authPath: AuthPath): Verdict {
+  if (config.IS_LOCAL_APP_MODE) return 'allow';
+  if (role == null) return authPath === 'access-key' ? 'deny' : 'allow';
+  return role.isAdmin === true ? 'allow' : 'check';
+}
+
+/**
+ * Shared resolution order, cheapest first, plus the missing-role telemetry.
+ * Both the Express middleware and the MCP wrappers use identical logic.
+ *
+ * The counter must fire exactly once per request that consults a permission,
+ * so call this once per request and reuse the result — see
+ * `createVerdictGate` in `mcp/utils/permission.ts` for how the MCP side does
+ * that, and `isEffectiveAdmin` below for the Express side.
+ */
 export function resolveVerdict(
   role: RoleLike,
   authPath: AuthPath,
   actorId?: string,
 ): Verdict {
-  if (config.IS_LOCAL_APP_MODE) return 'allow';
+  const verdict = computeVerdict(role, authPath);
 
-  if (role == null) {
+  if (!config.IS_LOCAL_APP_MODE && role == null) {
     missingRoleCounter.add(1, { path: authPath });
-    if (authPath === 'access-key') {
-      warnMissingRoleOnce(
-        actorId,
-        authPath,
-        'RBAC: access-key user has no role assigned; denying. Assign a role to this user.',
-      );
-      return 'deny';
-    }
     warnMissingRoleOnce(
       actorId,
       authPath,
-      'RBAC: user has no role assigned; allowing as admin. Run the RBAC migration.',
+      authPath === 'access-key'
+        ? 'RBAC: access-key user has no role assigned; denying. Assign a role to this user.'
+        : 'RBAC: user has no role assigned; allowing as admin. Run the RBAC migration.',
     );
-    return 'allow';
   }
 
-  return role.isAdmin === true ? 'allow' : 'check';
+  return verdict;
 }
 
 function verdictFor(req: Request): Verdict {

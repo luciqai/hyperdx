@@ -5,9 +5,13 @@ import type {
   RegisterPromptFn,
   ToolPermission,
 } from '@/mcp/tools/types';
-import { resolveVerdict } from '@/middleware/rbac';
 
-import { checkPermissionForVerdict, recordPromptDenial } from './permission';
+import {
+  checkPermissionForVerdict,
+  createVerdictGate,
+  recordPromptDenial,
+  type VerdictGate,
+} from './permission';
 
 /**
  * Permissions declared during prompt registration, keyed by prompt name.
@@ -29,17 +33,8 @@ export function createRegisterPrompt(
   server: McpServer,
   context: McpContext,
   declared: DeclaredPrompts = new Map(),
+  gate: VerdictGate = createVerdictGate(context),
 ): RegisterPromptFn {
-  // The server is constructed fresh per HTTP request, and every prompt file
-  // registers against it, so this factory body runs once per request while
-  // the returned function runs once per prompt. Resolving the verdict here
-  // — instead of inside the returned function, or via checkToolPermission
-  // per prompt — means `resolveVerdict`'s side effects (the
-  // `hyperdx.rbac.missing_role` counter and its WARN log) fire once per
-  // request, matching the counter's intended cardinality, rather than once
-  // per prompt registered against this request's server.
-  const verdict = resolveVerdict(context.role, 'access-key', context.userId);
-
   return (name, config, handler) => {
     // `permission` must NOT reach the SDK: it serialises `config` into the
     // prompt manifest advertised to clients, which would publish the whole
@@ -48,13 +43,28 @@ export function createRegisterPrompt(
     const { permission, ...sdkConfig } = config;
     declared.set(name, permission);
 
-    const decision = checkPermissionForVerdict(
-      verdict,
+    // Listing decision, taken at registration. `gate.peek()` and not
+    // `gate.get()`: this factory runs inside createServer, which runs once per
+    // HTTP POST regardless of the JSON-RPC method, so recording here would
+    // count a missing-role event for `initialize`, `ping` and `tools/list` —
+    // requests that consult no permission at all. Same verdict either way;
+    // only the telemetry differs.
+    const listable = checkPermissionForVerdict(
+      gate.peek(),
       context.role,
       permission,
-    );
+    ).ok;
 
     const guarded = async (args: any) => {
+      // Enforcement decision, taken on an actual `prompts/get`. This is where
+      // the request genuinely consults a permission, so this is where the
+      // gate records — once, however many prompts the request touches.
+      const decision = checkPermissionForVerdict(
+        gate.get(),
+        context.role,
+        permission,
+      );
+
       // Prompts return `{ messages }`, so there is no isError result shape to
       // carry a denial the way mcpUserError does for tools — throwing is the
       // protocol-level answer. Prompts are not wrapped by withToolTracing, so
@@ -78,7 +88,7 @@ export function createRegisterPrompt(
     // prompts/list while leaving it in _registeredPrompts, so the coverage
     // assertion still sees it. `guarded` remains the enforcement backstop for
     // a client calling a cached name, and is where the denial metric fires.
-    if (!decision.ok) {
+    if (!listable) {
       registered.disable();
     }
   };
