@@ -44,6 +44,7 @@ import {
   useDeleteDashboard,
 } from '@/dashboard';
 import { useFavorites } from '@/favorites';
+import { useMyPermissions } from '@/hooks/useMyPermissions';
 import { withAppNav } from '@/layout';
 import { useBrandDisplayName } from '@/theme/ThemeProvider';
 import { useConfirm } from '@/useConfirm';
@@ -81,6 +82,11 @@ export default function DashboardsListPage() {
   const confirm = useConfirm();
   const createDashboard = useCreateDashboard();
   const deleteDashboard = useDeleteDashboard();
+  // §10.4 puts list-level mutating actions in scope. ReadOnly holds
+  // dashboards: read and was being offered New / Import / Delete, all of which
+  // 403 on submit.
+  const { can } = useMyPermissions();
+  const canManageDashboards = can('dashboards', 'manage');
   const [search, setSearch] = useState('');
   const [tagFilter, setTagFilter] = useQueryState('tag');
   const [viewMode, setViewMode] = useLocalStorage<'grid' | 'list'>({
@@ -222,7 +228,9 @@ export default function DashboardsListPage() {
                   href={`/dashboards/${d.id}`}
                   tags={d.tags}
                   description={`${d.tiles.length} ${d.tiles.length === 1 ? 'tile' : 'tiles'}`}
-                  onDelete={() => handleDelete(d.id)}
+                  onDelete={
+                    canManageDashboards ? () => handleDelete(d.id) : undefined
+                  }
                   statusIcon={
                     <AlertStatusIcon alerts={getDashboardAlerts(d.tiles)} />
                   }
@@ -281,51 +289,55 @@ export default function DashboardsListPage() {
                 <IconList size={16} />
               </ActionIcon>
             </ActionIcon.Group>
-            <Button
-              component={Link}
-              href="/dashboards/import"
-              variant="secondary"
-              leftSection={<IconUpload size={16} />}
-              data-testid="import-dashboard-button"
-            >
-              Import
-            </Button>
-            <Menu position="bottom-end" withinPortal>
-              <Menu.Target>
+            {canManageDashboards && (
+              <>
                 <Button
-                  variant="primary"
-                  leftSection={<IconPlus size={16} />}
-                  rightSection={<IconChevronDown size={14} />}
-                  loading={createDashboard.isPending}
-                  data-testid="new-dashboard-button"
-                >
-                  New Dashboard
-                </Button>
-              </Menu.Target>
-              <Menu.Dropdown>
-                <Menu.Item
-                  leftSection={<IconDeviceFloppy size={14} />}
-                  onClick={handleCreate}
-                  data-testid="create-dashboard-button"
-                >
-                  Saved Dashboard
-                  <Text size="xs" c="dimmed">
-                    Persisted for your team
-                  </Text>
-                </Menu.Item>
-                <Menu.Item
                   component={Link}
-                  href="/dashboards"
-                  leftSection={<IconPlus size={14} />}
-                  data-testid="temp-dashboard-button"
+                  href="/dashboards/import"
+                  variant="secondary"
+                  leftSection={<IconUpload size={16} />}
+                  data-testid="import-dashboard-button"
                 >
-                  Temporary Dashboard
-                  <Text size="xs" c="dimmed">
-                    Lives in your browser only
-                  </Text>
-                </Menu.Item>
-              </Menu.Dropdown>
-            </Menu>
+                  Import
+                </Button>
+                <Menu position="bottom-end" withinPortal>
+                  <Menu.Target>
+                    <Button
+                      variant="primary"
+                      leftSection={<IconPlus size={16} />}
+                      rightSection={<IconChevronDown size={14} />}
+                      loading={createDashboard.isPending}
+                      data-testid="new-dashboard-button"
+                    >
+                      New Dashboard
+                    </Button>
+                  </Menu.Target>
+                  <Menu.Dropdown>
+                    <Menu.Item
+                      leftSection={<IconDeviceFloppy size={14} />}
+                      onClick={handleCreate}
+                      data-testid="create-dashboard-button"
+                    >
+                      Saved Dashboard
+                      <Text size="xs" c="dimmed">
+                        Persisted for your team
+                      </Text>
+                    </Menu.Item>
+                    <Menu.Item
+                      component={Link}
+                      href="/dashboards"
+                      leftSection={<IconPlus size={14} />}
+                      data-testid="temp-dashboard-button"
+                    >
+                      Temporary Dashboard
+                      <Text size="xs" c="dimmed">
+                        Lives in your browser only
+                      </Text>
+                    </Menu.Item>
+                  </Menu.Dropdown>
+                </Menu>
+              </>
+            )}
           </Group>
         </Flex>
 
@@ -352,24 +364,28 @@ export default function DashboardsListPage() {
               }
             >
               <Group>
-                <Button
-                  component={Link}
-                  href="/dashboards/import"
-                  variant="secondary"
-                  leftSection={<IconUpload size={16} />}
-                  data-testid="empty-import-dashboard-button"
-                >
-                  Import
-                </Button>
-                <Button
-                  variant="primary"
-                  leftSection={<IconPlus size={16} />}
-                  onClick={handleCreate}
-                  loading={createDashboard.isPending}
-                  data-testid="empty-create-dashboard-button"
-                >
-                  New Dashboard
-                </Button>
+                {canManageDashboards && (
+                  <>
+                    <Button
+                      component={Link}
+                      href="/dashboards/import"
+                      variant="secondary"
+                      leftSection={<IconUpload size={16} />}
+                      data-testid="empty-import-dashboard-button"
+                    >
+                      Import
+                    </Button>
+                    <Button
+                      variant="primary"
+                      leftSection={<IconPlus size={16} />}
+                      onClick={handleCreate}
+                      loading={createDashboard.isPending}
+                      data-testid="empty-create-dashboard-button"
+                    >
+                      New Dashboard
+                    </Button>
+                  </>
+                )}
               </Group>
             </EmptyState>
           </Flex>
@@ -393,7 +409,7 @@ export default function DashboardsListPage() {
                   name={d.name}
                   href={`/dashboards/${d.id}`}
                   tags={d.tags}
-                  onDelete={handleDelete}
+                  onDelete={canManageDashboards ? handleDelete : undefined}
                   createdBy={d.createdBy?.name || d.createdBy?.email}
                   updatedAt={d.updatedAt}
                   updatedBy={d.updatedBy?.name || d.updatedBy?.email}
@@ -426,7 +442,11 @@ export default function DashboardsListPage() {
                       href={`/dashboards/${d.id}`}
                       tags={d.tags}
                       description={`${d.tiles.length} ${d.tiles.length === 1 ? 'tile' : 'tiles'}`}
-                      onDelete={() => handleDelete(d.id)}
+                      onDelete={
+                        canManageDashboards
+                          ? () => handleDelete(d.id)
+                          : undefined
+                      }
                       statusIcon={
                         <AlertStatusIcon alerts={getDashboardAlerts(d.tiles)} />
                       }
