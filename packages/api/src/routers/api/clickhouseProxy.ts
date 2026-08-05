@@ -8,7 +8,7 @@ import { validateRequest } from 'zod-express-middleware';
 import { CODE_VERSION } from '@/config';
 import { getConnectionById } from '@/controllers/connection';
 import { getNonNullUserWithTeam } from '@/middleware/auth';
-import { noPermissionRequired, requirePermission } from '@/middleware/rbac';
+import { requirePermission } from '@/middleware/rbac';
 import { validateRequestHeaders } from '@/middleware/validation';
 import { recordOperationOutcome } from '@/utils/instrumentation';
 import logger from '@/utils/logger';
@@ -342,11 +342,13 @@ const markProxyStart: RequestHandler = (_req, res, next) => {
   next();
 };
 
-// Query paths stay ungated in slice A: source-level filtering lands in slice
-// B. Gating them on 'sources' today would break read-only members entirely.
+// SEC-2. Slice B still owns data-level enforcement, but leaving this
+// ungated let a sources:none role reach arbitrary read SQL against the
+// whole cluster. All three system roles hold sources:read, so no system
+// role loses anything.
 router.get(
   '/*',
-  noPermissionRequired('query-path-slice-B'),
+  requirePermission('sources', 'read'),
   hasConnectionId,
   getConnection,
   markProxyStart,
@@ -354,7 +356,7 @@ router.get(
 );
 router.post(
   '/*',
-  noPermissionRequired('query-path-slice-B'),
+  requirePermission('sources', 'read'),
   hasConnectionId,
   getConnection,
   markProxyStart,

@@ -21,10 +21,7 @@ import logger from '@/utils/logger';
  */
 type AnyRequestHandler = RequestHandler<any, any, any, any, any>;
 
-export type RbacExemptReason =
-  | 'public'
-  | 'personal-state'
-  | 'query-path-slice-B';
+export type RbacExemptReason = 'public' | 'personal-state';
 
 export type RbacDeclaration =
   | { kind: 'permission'; resource: Resource; level: PermissionLevel }

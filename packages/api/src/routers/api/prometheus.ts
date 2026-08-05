@@ -6,16 +6,15 @@ import { pipeline } from 'stream/promises';
 
 import { getConnectionById } from '@/controllers/connection';
 import { getNonNullUserWithTeam } from '@/middleware/auth';
-import { noPermissionRequired } from '@/middleware/rbac';
+import { requirePermission } from '@/middleware/rbac';
 import { getCounter, getHistogram } from '@/utils/instrumentation';
 import logger from '@/utils/logger';
 
 const router = express.Router();
 
-// Query paths stay ungated in slice A: source-level filtering lands in slice B.
-// Each route gets its own declaration instance so the boot-time coverage
-// walker sees a distinct tagged handler per layer.
-const queryPathExempt = () => noPermissionRequired('query-path-slice-B');
+// SEC-2. Was noPermissionRequired('query-path-slice-B'); the PromQL path is a
+// query path and was reachable by a role holding sources: none.
+const queryPathGate = () => requirePermission('sources', 'read');
 
 // The proxy handlers catch their own errors and return Prometheus-shaped 4xx
 // bodies, so failures never reach the API error middleware. Track them here
@@ -373,8 +372,8 @@ const queryRangeHandler: express.RequestHandler = async (req, res) => {
     });
   }
 };
-router.get('/query_range', queryPathExempt(), queryRangeHandler);
-router.post('/query_range', queryPathExempt(), queryRangeHandler);
+router.get('/query_range', queryPathGate(), queryRangeHandler);
+router.post('/query_range', queryPathGate(), queryRangeHandler);
 
 // --------------------------
 // GET|POST /query
@@ -481,8 +480,8 @@ const queryHandler: express.RequestHandler = async (req, res) => {
     });
   }
 };
-router.get('/query', queryPathExempt(), queryHandler);
-router.post('/query', queryPathExempt(), queryHandler);
+router.get('/query', queryPathGate(), queryHandler);
+router.post('/query', queryPathGate(), queryHandler);
 
 // --------------------------
 // GET /label/:name/values
@@ -494,7 +493,7 @@ router.post('/query', queryPathExempt(), queryHandler);
 // https://prometheus.io/docs/concepts/data_model/#metric-names-and-labels
 const PROMETHEUS_LABEL_NAME = /^[a-zA-Z_:][a-zA-Z0-9_:]*$/;
 
-router.get('/label/:name/values', queryPathExempt(), async (req, res) => {
+router.get('/label/:name/values', queryPathGate(), async (req, res) => {
   const startedAt = performance.now();
   let backend: PrometheusBackend = 'unknown';
   try {
