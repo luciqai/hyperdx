@@ -117,4 +117,71 @@ describe('guardedSeriesSchema (schema-level wiring for /charts/series)', () => {
     });
     expect(result.success).toBe(true);
   });
+
+  // `field` and `groupBy` both reach ClickHouse as raw `valueExpression`s, which
+  // makes them the direct analogue of /search's `select` — the input the
+  // original bypass targeted. Neither has a Lucene mode, so unlike `where` the
+  // guard is unconditional: `whereLanguage: 'lucene'` must not excuse them.
+  it('rejects a subquery in `field`', () => {
+    const result = guardedSeriesSchema.safeParse({
+      ...baseSeries,
+      whereLanguage: 'lucene',
+      where: '',
+      field: '(SELECT groupArray(name) FROM system.users)',
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues).toContainEqual(
+        expect.objectContaining({ path: ['field'] }),
+      );
+    }
+  });
+
+  it('rejects a comment-obfuscated subquery in `field`', () => {
+    const result = guardedSeriesSchema.safeParse({
+      ...baseSeries,
+      whereLanguage: 'sql',
+      where: '',
+      field: '(SELECT/**/groupArray(name) FROM system.users)',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects a subquery in a `groupBy` element, naming that element', () => {
+    const result = guardedSeriesSchema.safeParse({
+      ...baseSeries,
+      whereLanguage: 'lucene',
+      where: '',
+      groupBy: ['ServiceName', '(SELECT groupArray(name) FROM system.users)'],
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      // Indexed path, so the error points at the offending element rather than
+      // the array as a whole.
+      expect(result.error.issues).toContainEqual(
+        expect.objectContaining({ path: ['groupBy', 1] }),
+      );
+    }
+  });
+
+  it('rejects a semicolon in a `groupBy` element', () => {
+    const result = guardedSeriesSchema.safeParse({
+      ...baseSeries,
+      whereLanguage: 'lucene',
+      where: '',
+      groupBy: ['ServiceName; DROP TABLE x'],
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('accepts ordinary `field` and `groupBy` expressions', () => {
+    const result = guardedSeriesSchema.safeParse({
+      ...baseSeries,
+      whereLanguage: 'lucene',
+      where: '',
+      field: 'duration',
+      groupBy: ['ServiceName', "LogAttributes['k8s.pod.name']"],
+    });
+    expect(result.success).toBe(true);
+  });
 });
