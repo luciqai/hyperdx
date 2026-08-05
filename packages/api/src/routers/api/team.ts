@@ -215,14 +215,10 @@ router.post(
 );
 
 // `url` is admin-only (BUG-7): non-admins get every field except the
-// accept-capable token, so the response shape here loosens `url` to optional
-// rather than widening the published `TeamInvitationsApiResponse` schema,
-// which other callers (e.g. invite creation) still return unconditionally.
-type TeamInviteExpressRes = express.Response<{
-  data: (Omit<TeamInvitationsApiResponse['data'][number], 'url'> & {
-    url?: string;
-  })[];
-}>;
+// accept-capable token. The shared `TeamInvitationsApiResponse` schema
+// declares `url` optional for exactly this reason, so it can be used as-is
+// here without a local narrowing.
+type TeamInviteExpressRes = express.Response<TeamInvitationsApiResponse>;
 router.get(
   '/invitations',
   requirePermission('users', 'read'),
