@@ -178,3 +178,24 @@ export function noPermissionRequired(
   const handler = (_req: Request, _res: Response, next: NextFunction) => next();
   return tag(handler, { kind: 'exempt', reason });
 }
+
+/**
+ * The same predicate `requireAdmin()` gates on, for handlers that need to
+ * *shape* a response by admin-ness rather than reject the request.
+ *
+ * Deliberately mirrors `resolveVerdict` rather than calling it: that function
+ * increments `hyperdx.rbac.missing_role`, which must fire exactly once per
+ * request. Calling it a second time to read admin-ness would double-count
+ * every role-less request.
+ */
+export function isEffectiveAdmin(req: Request): boolean {
+  if (config.IS_LOCAL_APP_MODE) return true;
+
+  const role = (req.user as any)?.role ?? null;
+  if (role == null) {
+    // Session fail-open, access-key fail-closed — slice C §7.
+    return (req as any)._hdx_authPath !== 'access-key';
+  }
+
+  return role.isAdmin === true;
+}

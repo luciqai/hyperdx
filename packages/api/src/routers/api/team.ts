@@ -28,7 +28,11 @@ import {
   findUsersByTeam,
 } from '@/controllers/user';
 import { getNonNullUserWithTeam } from '@/middleware/auth';
-import { requireAdmin, requirePermission } from '@/middleware/rbac';
+import {
+  isEffectiveAdmin,
+  requireAdmin,
+  requirePermission,
+} from '@/middleware/rbac';
 import TeamInvite from '@/models/teamInvite';
 import User from '@/models/user';
 import rolesRouter from '@/routers/api/roles';
@@ -210,7 +214,15 @@ router.post(
   },
 );
 
-type TeamInviteExpressRes = express.Response<TeamInvitationsApiResponse>;
+// `url` is admin-only (BUG-7): non-admins get every field except the
+// accept-capable token, so the response shape here loosens `url` to optional
+// rather than widening the published `TeamInvitationsApiResponse` schema,
+// which other callers (e.g. invite creation) still return unconditionally.
+type TeamInviteExpressRes = express.Response<{
+  data: (Omit<TeamInvitationsApiResponse['data'][number], 'url'> & {
+    url?: string;
+  })[];
+}>;
 router.get(
   '/invitations',
   requirePermission('users', 'read'),
@@ -220,13 +232,19 @@ router.get(
       if (teamId == null) {
         throw new Error(`User ${req.user?._id} not associated with a team`);
       }
+
+      // BUG-7. The invite URL embeds an accept-capable token, and users:read is
+      // held by Member. Members keep seeing which invitations are outstanding;
+      // the token is not projected for them, so it never enters the process.
+      const isAdmin = isEffectiveAdmin(req);
+
       const teamInvites = await TeamInvite.find(
         { teamId },
         {
           createdAt: 1,
           email: 1,
           name: 1,
-          token: 1,
+          ...(isAdmin ? { token: 1 } : {}),
         },
       );
       res.json({
@@ -235,7 +253,7 @@ router.get(
           createdAt: ti.createdAt.toISOString(),
           email: ti.email,
           name: ti.name,
-          url: getTeamInviteUrl(ti.token),
+          ...(isAdmin ? { url: getTeamInviteUrl(ti.token) } : {}),
         })),
       });
     } catch (e) {

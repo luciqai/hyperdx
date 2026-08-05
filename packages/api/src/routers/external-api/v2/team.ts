@@ -9,7 +9,11 @@ import {
   findUserByEmail,
   findUsersByTeam,
 } from '@/controllers/user';
-import { requireAdmin, requirePermission } from '@/middleware/rbac';
+import {
+  isEffectiveAdmin,
+  requireAdmin,
+  requirePermission,
+} from '@/middleware/rbac';
 import TeamInvite from '@/models/teamInvite';
 import { objectIdSchema } from '@/utils/zod';
 
@@ -195,9 +199,12 @@ router.get(
         return res.sendStatus(403);
       }
 
+      // BUG-7 — same redaction as the internal route.
+      const isAdmin = isEffectiveAdmin(req);
+
       const teamInvites = await TeamInvite.find(
         { teamId: teamId.toString() },
-        { createdAt: 1, email: 1, name: 1, token: 1 },
+        { createdAt: 1, email: 1, name: 1, ...(isAdmin ? { token: 1 } : {}) },
       );
 
       return res.json({
@@ -206,7 +213,7 @@ router.get(
           createdAt: ti.createdAt,
           email: ti.email,
           name: ti.name,
-          url: getTeamInviteUrl(ti.token),
+          ...(isAdmin ? { url: getTeamInviteUrl(ti.token) } : {}),
         })),
       });
     } catch (e) {
