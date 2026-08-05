@@ -5,7 +5,10 @@ import express from 'express';
 
 import { validateUserAccessKey } from '@/middleware/auth';
 import logger from '@/utils/logger';
-import rateLimiter, { rateLimiterKeyGenerator } from '@/utils/rateLimiter';
+import rateLimiter, {
+  ipOnlyKeyGenerator,
+  rateLimiterKeyGenerator,
+} from '@/utils/rateLimiter';
 
 import { createServer } from './mcpServer';
 import { McpContext } from './tools/types';
@@ -21,6 +24,17 @@ const mcpRateLimiter = rateLimiter({
   keyGenerator: rateLimiterKeyGenerator,
 });
 
+// Runs BEFORE authentication (the GET/DELETE 405 handlers below, and in front
+// of validateUserAccessKey on POST), so failed key guesses from one origin
+// share a bucket (BUG-8) instead of each guess getting its own.
+const mcpAuthAttemptRateLimiter = rateLimiter({
+  windowMs: 60 * 1000,
+  max: 900,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: ipOnlyKeyGenerator,
+});
+
 // This transport is stateless: a fresh server/transport is created per POST, so
 // we neither offer a server-initiated SSE stream (GET) nor client-terminable
 // sessions (DELETE). Per the Streamable HTTP spec a server that doesn't offer
@@ -34,54 +48,60 @@ const mcpRateLimiter = rateLimiter({
 const methodNotAllowed = (_req: express.Request, res: express.Response) => {
   res.set('Allow', 'POST').sendStatus(405);
 };
-app.get('/', mcpRateLimiter, methodNotAllowed);
-app.delete('/', mcpRateLimiter, methodNotAllowed);
+app.get('/', mcpAuthAttemptRateLimiter, methodNotAllowed);
+app.delete('/', mcpAuthAttemptRateLimiter, methodNotAllowed);
 
-app.post('/', mcpRateLimiter, validateUserAccessKey, async (req, res) => {
-  const transport = new StreamableHTTPServerTransport({
-    sessionIdGenerator: undefined, // stateless
-  });
+app.post(
+  '/',
+  mcpAuthAttemptRateLimiter,
+  validateUserAccessKey,
+  mcpRateLimiter,
+  async (req, res) => {
+    const transport = new StreamableHTTPServerTransport({
+      sessionIdGenerator: undefined, // stateless
+    });
 
-  const teamId = req.user?.team;
+    const teamId = req.user?.team;
 
-  if (!teamId) {
-    logger.warn('MCP request rejected: no teamId');
-    res.sendStatus(403);
-    return;
-  }
+    if (!teamId) {
+      logger.warn('MCP request rejected: no teamId');
+      res.sendStatus(403);
+      return;
+    }
 
-  const userId = req.user?._id?.toString();
-  if (!userId) {
-    logger.warn('MCP request rejected: no userId');
-    res.sendStatus(403);
-    return;
-  }
+    const userId = req.user?._id?.toString();
+    if (!userId) {
+      logger.warn('MCP request rejected: no userId');
+      res.sendStatus(403);
+      return;
+    }
 
-  const context: McpContext = {
-    teamId: teamId.toString(),
-    userId,
-    // Populated by findUserByAccessKey. Null when the user has no role, which
-    // denies every tool: this path always fails closed.
-    role: (req.user as any)?.role ?? null,
-    mcpClient: userAgentClientInfo(req.get('User-Agent')),
-  };
+    const context: McpContext = {
+      teamId: teamId.toString(),
+      userId,
+      // Populated by findUserByAccessKey. Null when the user has no role, which
+      // denies every tool: this path always fails closed.
+      role: (req.user as any)?.role ?? null,
+      mcpClient: userAgentClientInfo(req.get('User-Agent')),
+    };
 
-  setTraceAttributes({
-    'mcp.team.id': context.teamId,
-    'mcp.user.id': userId,
-  });
+    setTraceAttributes({
+      'mcp.team.id': context.teamId,
+      'mcp.user.id': userId,
+    });
 
-  logger.info({ teamId: context.teamId, userId }, 'MCP request received');
+    logger.info({ teamId: context.teamId, userId }, 'MCP request received');
 
-  const server = createServer(context);
+    const server = createServer(context);
 
-  try {
-    await server.connect(transport);
-    await transport.handleRequest(req, res, req.body);
-  } finally {
-    await server.close();
-    await transport.close();
-  }
-});
+    try {
+      await server.connect(transport);
+      await transport.handleRequest(req, res, req.body);
+    } finally {
+      await server.close();
+      await transport.close();
+    }
+  },
+);
 
 export default app;
