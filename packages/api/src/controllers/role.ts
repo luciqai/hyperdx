@@ -244,20 +244,25 @@ function holdsAdminRole(
   return adminRoleIds.some(id => id.toString() === user.role!.toString());
 }
 
-/** The last user holding an isAdmin role cannot be demoted or removed. */
-const LAST_ADMIN_MESSAGE =
-  'This is the last Admin. Promote someone else to Admin first.';
-
-const LAST_ADMIN_REMOVAL_MESSAGE =
-  "The last admin can't be removed. Promote someone else first.";
-
 /**
- * Distinct from the last-admin message on purpose: the condition is different
- * and so is the operator's next action. "Promote someone else to Admin" is
+ * The two blocking conditions, each phrased for the action being attempted —
+ * a 2x2 matrix of {last-admin, no-admin-role} x {changing, removing}.
+ *
+ * The two conditions stay distinct on purpose: they are different states and
+ * the operator's next action differs. "Promote someone else to Admin" is
  * meaningless advice on a team where nobody holds the Admin role in the first
- * place — what they have to do is assign it.
+ * place — what they have to do is assign it. The *action* axis, by contrast,
+ * only ever varied the wording, so it is a parameter rather than a second
+ * constant.
  */
-const noAdminRoleMessage = (action: 'changing' | 'removing') =>
+type BlockedAction = 'changing' | 'removing';
+
+/** The last user holding an isAdmin role cannot be demoted or removed. */
+const lastAdminMessage = (action: BlockedAction) =>
+  'This is the last Admin. Promote someone else to Admin before ' +
+  `${action} this user.`;
+
+const noAdminRoleMessage = (action: BlockedAction) =>
   'This team has no Admin role assigned. Give someone the Admin role before ' +
   `${action} this user.`;
 
@@ -359,7 +364,7 @@ export async function assignRole(
       // be the last one, so this does not fire for them — which is what keeps
       // an un-migrated team (nobody holds an admin role) manageable.
       if (wasAdmin) {
-        throw new RoleConflictError(LAST_ADMIN_MESSAGE);
+        throw new RoleConflictError(lastAdminMessage('changing'));
       }
 
       // Guard 2 — admin-less protection, independent of guard 1. Guard 1
@@ -392,7 +397,7 @@ export async function assignRole(
         throw new RoleConflictError(message);
       };
 
-      if (wasAdmin) await rollback(LAST_ADMIN_MESSAGE);
+      if (wasAdmin) await rollback(lastAdminMessage('changing'));
       if ((await countRoleLessUsers(teamId)) === 0) {
         await rollback(noAdminRoleMessage('changing'));
       }
@@ -424,7 +429,7 @@ export async function getMemberRemovalConflict(
     return null;
   }
 
-  if (holdsAdminRole(adminRoleIds, user)) return LAST_ADMIN_REMOVAL_MESSAGE;
+  if (holdsAdminRole(adminRoleIds, user)) return lastAdminMessage('removing');
 
   return (await countRoleLessUsers(teamId, userId)) === 0
     ? noAdminRoleMessage('removing')
