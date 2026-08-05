@@ -59,7 +59,15 @@ export function createRegisterPrompt(
       // carry a denial the way mcpUserError does for tools — throwing is the
       // protocol-level answer. Prompts are not wrapped by withToolTracing, so
       // this reaches no alerting path.
-      if (!decision.ok) throw new Error(decision.message);
+      if (!decision.ok) {
+        // Mirrors registerTool.ts: the metric fires on an actual attempted
+        // call, not on registration. The server is rebuilt per HTTP request,
+        // so recording at registration/disable time would count once per
+        // denied prompt on every request from an under-permissioned role,
+        // even when the client never lists or requests it.
+        recordPromptDenial(name, permission);
+        throw new Error(decision.message);
+      }
       return handler(args);
     };
 
@@ -69,9 +77,8 @@ export function createRegisterPrompt(
     // entirely, not advertised and then refused. Disabling keeps it out of
     // prompts/list while leaving it in _registeredPrompts, so the coverage
     // assertion still sees it. `guarded` remains the enforcement backstop for
-    // a client calling a cached name.
+    // a client calling a cached name, and is where the denial metric fires.
     if (!decision.ok) {
-      recordPromptDenial(name, permission);
       registered.disable();
     }
   };

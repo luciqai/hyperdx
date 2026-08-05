@@ -21,13 +21,13 @@ const promptDeniedCounter = getCounter('hyperdx.mcp.prompt.denied', {
 export type PermissionCheck = { ok: true } | { ok: false; message: string };
 
 /**
- * Pure permission decision for an MCP tool, given an already-resolved
- * verdict. Split out of `checkToolPermission` so callers that must resolve
- * the verdict once and reuse it across multiple permission checks (the
- * prompt registrar registers several prompts per server, but the verdict is
- * fixed for the server's lifetime) don't re-trigger `resolveVerdict`'s
- * side effects — notably the `hyperdx.rbac.missing_role` counter and its
- * WARN log, which must fire once per request, not once per registration.
+ * Pure permission decision for an MCP tool or prompt, given an
+ * already-resolved verdict. Split out of `checkToolPermission` so callers
+ * that must resolve the verdict once and reuse it across multiple permission
+ * checks (the prompt registrar registers several prompts per server, but the
+ * verdict is fixed for the server's lifetime) can avoid re-triggering
+ * `resolveVerdict`'s side effects. See `checkToolPermission` for why that
+ * matters.
  */
 export function checkPermissionForVerdict(
   verdict: Verdict,
@@ -78,12 +78,12 @@ export function checkPermissionForVerdict(
  *
  * Resolves the verdict itself, so it must only be called once per decision —
  * `resolveVerdict` increments `hyperdx.rbac.missing_role` and logs a WARN on
- * every call. `registerTool.ts` calls this once per tool invocation (the
- * right cardinality: one call, one verdict). Callers that need the same
- * verdict for several permission checks in one request (the prompt
- * registrar registering multiple prompts per server construction) must
- * resolve the verdict once via `resolveVerdict` and call
- * `checkPermissionForVerdict` directly instead of this wrapper.
+ * every call, and that must fire once per request, not once per check.
+ * `registerTool.ts` calls this once per tool invocation, which is the right
+ * cardinality. Callers that need the same verdict for several permission
+ * checks in one request (the prompt registrar registering multiple prompts
+ * per server construction) must resolve the verdict once via `resolveVerdict`
+ * and call `checkPermissionForVerdict` directly instead of this wrapper.
  */
 export function checkToolPermission(
   role: RoleLike,

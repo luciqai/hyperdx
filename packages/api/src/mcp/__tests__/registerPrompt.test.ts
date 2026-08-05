@@ -1,3 +1,4 @@
+import * as permission from '@/mcp/utils/permission';
 import { createRegisterPrompt } from '@/mcp/utils/registerPrompt';
 import { resolveVerdict } from '@/middleware/rbac';
 
@@ -6,6 +7,11 @@ jest.mock('@/config', () => ({ IS_LOCAL_APP_MODE: false }));
 jest.mock('@/middleware/rbac', () => {
   const actual = jest.requireActual('@/middleware/rbac');
   return { ...actual, resolveVerdict: jest.fn(actual.resolveVerdict) };
+});
+
+jest.mock('@/mcp/utils/permission', () => {
+  const actual = jest.requireActual('@/mcp/utils/permission');
+  return { ...actual, recordPromptDenial: jest.fn(actual.recordPromptDenial) };
 });
 
 const ADMIN = { name: 'Admin', isAdmin: true, permissions: {} };
@@ -160,5 +166,35 @@ describe('createRegisterPrompt', () => {
     );
 
     expect(resolveVerdict).toHaveBeenCalledTimes(1);
+  });
+
+  // Corrected semantics: the denial metric is an attempted-call event, not a
+  // registration-time event. Mirrors recordToolDenial in registerTool.ts,
+  // which fires inside the guarded handler on an actual call.
+  it('emits no denial metric at registration, and exactly one on an actual guarded call', async () => {
+    const server = fakeServer();
+    const registerPrompt = createRegisterPrompt(server as any, ctx(NO_SOURCES));
+
+    registerPrompt(
+      'create_dashboard',
+      { title: 'T', description: 'D', permission: 'sources:read' },
+      async () => ({ messages: [] }),
+    );
+
+    // Registration disabled the prompt, but must not have recorded a denial:
+    // the server is rebuilt per HTTP request, so recording here would count
+    // once per denied prompt on every request, even if no client ever calls it.
+    expect(server.registered.create_dashboard.handle.enabled).toBe(false);
+    expect(permission.recordPromptDenial).not.toHaveBeenCalled();
+
+    await expect(server.registered.create_dashboard.cb({})).rejects.toThrow(
+      /sources: read/,
+    );
+
+    expect(permission.recordPromptDenial).toHaveBeenCalledTimes(1);
+    expect(permission.recordPromptDenial).toHaveBeenCalledWith(
+      'create_dashboard',
+      'sources:read',
+    );
   });
 });
