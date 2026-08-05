@@ -1,6 +1,12 @@
 import { createRegisterPrompt } from '@/mcp/utils/registerPrompt';
+import { resolveVerdict } from '@/middleware/rbac';
 
 jest.mock('@/config', () => ({ IS_LOCAL_APP_MODE: false }));
+
+jest.mock('@/middleware/rbac', () => {
+  const actual = jest.requireActual('@/middleware/rbac');
+  return { ...actual, resolveVerdict: jest.fn(actual.resolveVerdict) };
+});
 
 const ADMIN = { name: 'Admin', isAdmin: true, permissions: {} };
 const NO_SOURCES = {
@@ -24,6 +30,10 @@ function fakeServer() {
 const ctx = (role: any) => ({ teamId: 't1', userId: 'u1', role }) as any;
 
 describe('createRegisterPrompt', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
   it('strips `permission` before the config reaches the SDK', () => {
     const server = fakeServer();
     const registerPrompt = createRegisterPrompt(server as any, ctx(ADMIN));
@@ -121,5 +131,34 @@ describe('createRegisterPrompt', () => {
     await expect(server.registered.create_dashboard.cb({})).rejects.toThrow(
       /no role is assigned/,
     );
+  });
+
+  // Regression for the missing_role-fires-per-prompt defect: the MCP server
+  // is rebuilt per HTTP request and every prompt file registers against it,
+  // so `resolveVerdict` (and the counter/WARN log it drives) must be called
+  // once per request, not once per prompt registered. Nothing before this
+  // test registered more than one prompt per context, which is why the
+  // defect slipped through review.
+  it('resolves the RBAC verdict once per request, not once per prompt', () => {
+    const server = fakeServer();
+    const registerPrompt = createRegisterPrompt(server as any, ctx(null));
+
+    registerPrompt(
+      'create_dashboard',
+      { title: 'T', description: 'D', permission: 'sources:read' },
+      async () => ({ messages: [] }),
+    );
+    registerPrompt(
+      'query_guide',
+      { title: 'T', description: 'D', permission: 'sources:read' },
+      async () => ({ messages: [] }),
+    );
+    registerPrompt(
+      'edit_dashboard',
+      { title: 'T', description: 'D', permission: 'dashboards:manage' },
+      async () => ({ messages: [] }),
+    );
+
+    expect(resolveVerdict).toHaveBeenCalledTimes(1);
   });
 });

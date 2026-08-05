@@ -5,8 +5,9 @@ import type {
   RegisterPromptFn,
   ToolPermission,
 } from '@/mcp/tools/types';
+import { resolveVerdict } from '@/middleware/rbac';
 
-import { checkToolPermission } from './permission';
+import { checkPermissionForVerdict, recordPromptDenial } from './permission';
 
 /**
  * Permissions declared during prompt registration, keyed by prompt name.
@@ -29,6 +30,16 @@ export function createRegisterPrompt(
   context: McpContext,
   declared: DeclaredPrompts = new Map(),
 ): RegisterPromptFn {
+  // The server is constructed fresh per HTTP request, and every prompt file
+  // registers against it, so this factory body runs once per request while
+  // the returned function runs once per prompt. Resolving the verdict here
+  // — instead of inside the returned function, or via checkToolPermission
+  // per prompt — means `resolveVerdict`'s side effects (the
+  // `hyperdx.rbac.missing_role` counter and its WARN log) fire once per
+  // request, matching the counter's intended cardinality, rather than once
+  // per prompt registered against this request's server.
+  const verdict = resolveVerdict(context.role, 'access-key', context.userId);
+
   return (name, config, handler) => {
     // `permission` must NOT reach the SDK: it serialises `config` into the
     // prompt manifest advertised to clients, which would publish the whole
@@ -37,12 +48,10 @@ export function createRegisterPrompt(
     const { permission, ...sdkConfig } = config;
     declared.set(name, permission);
 
-    // The server is constructed per connection with the caller's role, so the
-    // decision is fixed for this server's lifetime — evaluate it once.
-    const decision = checkToolPermission(
+    const decision = checkPermissionForVerdict(
+      verdict,
       context.role,
       permission,
-      context.userId,
     );
 
     const guarded = async (args: any) => {
@@ -61,6 +70,9 @@ export function createRegisterPrompt(
     // prompts/list while leaving it in _registeredPrompts, so the coverage
     // assertion still sees it. `guarded` remains the enforcement backstop for
     // a client calling a cached name.
-    if (!decision.ok) registered.disable();
+    if (!decision.ok) {
+      recordPromptDenial(name, permission);
+      registered.disable();
+    }
   };
 }
