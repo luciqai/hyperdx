@@ -17,6 +17,7 @@ import { getTeam } from '@/controllers/team';
 import { requirePermission } from '@/middleware/rbac';
 import { IConnection } from '@/models/connection';
 import { ISource } from '@/models/source';
+import { validateColumnsExpression } from '@/routers/external-api/v2/search';
 import { validateRequestWithEnhancedErrors as validateRequest } from '@/utils/enhancedErrors';
 import {
   getCounter,
@@ -187,6 +188,23 @@ const apiGranularitySchema =
   process.env.NODE_ENV === 'test'
     ? z.union([granularitySchema, z.literal('1s')])
     : granularitySchema;
+
+// `where` and `whereLanguage` live per-series (externalQueryChartSeriesSchema),
+// not on the outer /series request body, so the guard is attached here rather
+// than on the request schema as a whole. BUG-9: this route carried no
+// expression guard whatsoever — a plain subquery in a series' `where` worked.
+const guardedSeriesSchema = externalQueryChartSeriesSchema.superRefine(
+  (val, ctx) => {
+    if (val.whereLanguage === 'sql' && !validateColumnsExpression(val.where)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['where'],
+        message:
+          'where must not contain semicolons or subqueries when whereLanguage is "sql"',
+      });
+    }
+  },
+);
 
 /**
  * Reusable schema for millisecond timestamps validation
@@ -532,7 +550,7 @@ router.post(
   validateRequest({
     body: z.object({
       series: z
-        .array(externalQueryChartSeriesSchema)
+        .array(guardedSeriesSchema)
         .min(1, { message: 'Series array cannot be empty' })
         .max(5)
         .refine(
