@@ -106,32 +106,45 @@ export async function createRole(
   }
 }
 
+async function getAdminRoleIds(teamId: string | ObjectId): Promise<ObjectId[]> {
+  const roles = await Role.find({ team: teamId, isAdmin: true })
+    .select('_id')
+    .lean();
+  return roles.map(r => r._id);
+}
+
 /**
- * Users who can currently reach `requireAdmin`.
+ * Users holding an `isAdmin` role.
  *
- * Deliberately counts role-less users: the middleware fails open as admin for
- * them (see spec §11.3), so they ARE effective admins. Counting only holders
- * of an isAdmin role would let an operator assign roles one-by-one on an
- * un-migrated team and silently reach zero real admins — an unrecoverable
- * lockout, since every admin route then 403s for everyone.
+ * BUG-1: this deliberately does NOT count role-less users. They pass
+ * `requireAdmin` via the session fail-open, so counting them made the guard
+ * fall silent whenever any un-migrated user existed — the same demotion
+ * returning 200 or 409 depending on invisible state. The guard's callers
+ * instead check that the *target* holds an admin role, which keeps
+ * un-migrated teams usable without weakening the invariant.
  */
-async function countEffectiveAdmins(
+async function countAdminRoleHolders(
   teamId: string | ObjectId,
   excludeUserId?: ObjectId | string,
 ): Promise<number> {
-  const adminRoleIds = (
-    await Role.find({ team: teamId, isAdmin: true }).select('_id').lean()
-  ).map(r => r._id);
+  const adminRoleIds = await getAdminRoleIds(teamId);
+  if (adminRoleIds.length === 0) return 0;
 
   return User.countDocuments({
     team: teamId,
+    role: { $in: adminRoleIds },
     ...(excludeUserId ? { _id: { $ne: excludeUserId } } : {}),
-    $or: [
-      { role: { $in: adminRoleIds } },
-      { role: null },
-      { role: { $exists: false } },
-    ],
   });
+}
+
+/** Whether this user currently holds one of the team's isAdmin roles. */
+async function holdsAdminRole(
+  teamId: string | ObjectId,
+  user: { role?: ObjectId | null },
+): Promise<boolean> {
+  if (user.role == null) return false;
+  const adminRoleIds = await getAdminRoleIds(teamId);
+  return adminRoleIds.some(id => id.toString() === user.role!.toString());
 }
 
 export async function updateRole(
@@ -209,15 +222,19 @@ export async function assignRole(
   if (!nextRole) throw new RoleConflictError('Role not found');
 
   const previousRoleId = user.role;
+  // Captured before the write: the rollback below must know whether this user
+  // was an admin, and the answer changes once the write lands.
+  const wasAdmin = await holdsAdminRole(teamId, user);
 
-  // Last-admin protection. The user being demoted counts as an effective admin
-  // if they hold an isAdmin role OR have no role at all (fail-open), so this
-  // must run for role-less users too — not just holders of an admin role.
-  if (!nextRole.isAdmin) {
-    const remaining = await countEffectiveAdmins(teamId, user._id);
+  // Last-admin protection. §9.2: the last user *holding* an isAdmin role
+  // cannot be demoted. A user who holds no admin role cannot be the last one,
+  // so the guard does not fire for them — which is what keeps an un-migrated
+  // team (nobody holds an admin role) from becoming unmanageable.
+  if (!nextRole.isAdmin && wasAdmin) {
+    const remaining = await countAdminRoleHolders(teamId, user._id);
     if (remaining === 0) {
       throw new RoleConflictError(
-        "The last admin can't be changed. Promote someone else first.",
+        'This is the last Admin. Promote someone else to Admin first.',
       );
     }
   }
@@ -228,20 +245,24 @@ export async function assignRole(
   // Re-check after the write. Two concurrent demotions can each observe one
   // other admin remaining and both commit, leaving zero — an unrecoverable
   // state. Roll this one back if that happened.
-  if (!nextRole.isAdmin && (await countEffectiveAdmins(teamId)) === 0) {
+  if (
+    !nextRole.isAdmin &&
+    wasAdmin &&
+    (await countAdminRoleHolders(teamId)) === 0
+  ) {
     user.role = previousRoleId;
     await user.save();
     throw new RoleConflictError(
-      "The last admin can't be changed. Promote someone else first.",
+      'This is the last Admin. Promote someone else to Admin first.',
     );
   }
 }
 
 /**
- * True when removing this user would leave the team with no effective admin.
+ * True when removing this user would leave the team with no admin-role holder.
  *
- * Counts role-less users as admins for the same reason as
- * `countEffectiveAdmins` — they pass `requireAdmin` via the fail-open.
+ * Only ever true for a user who currently holds an `isAdmin` role — see
+ * `countAdminRoleHolders` for why role-less users are not counted.
  */
 export async function isLastAdmin(
   teamId: string | ObjectId,
@@ -249,6 +270,7 @@ export async function isLastAdmin(
 ): Promise<boolean> {
   const user = await User.findOne({ _id: userId, team: teamId });
   if (!user) return false;
+  if (!(await holdsAdminRole(teamId, user))) return false;
 
-  return (await countEffectiveAdmins(teamId, userId)) === 0;
+  return (await countAdminRoleHolders(teamId, userId)) === 0;
 }

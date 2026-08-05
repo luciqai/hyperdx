@@ -155,11 +155,12 @@ describe('role controller', () => {
     expect(roles.find(r => r.name === 'Admin')!.memberCount).toBe(1);
   });
 
-  // Regression: the guard only counted holders of an isAdmin role. On an
-  // un-migrated team every user is role-less and therefore an effective admin
-  // via the fail-open, so assigning roles one-by-one walked the team to zero
-  // real admins and permanently bricked every requireAdmin route.
-  it('refuses to demote the last effective admin when everyone is role-less', async () => {
+  // BUG-1 fix: the guard now counts holders of an isAdmin role only, and only
+  // fires when the *target* holds one. A role-less sole user cannot be the
+  // last admin-role holder (there isn't one), so this un-migrated team stays
+  // manageable instead of getting permanently stuck. See
+  // lastAdmin.int.test.ts for the full invariant coverage.
+  it('does not block demoting a role-less user on an un-migrated team', async () => {
     await seedSystemRoles(teamId);
     const member = await Role.findOne({ team: teamId, name: 'Member' });
     const soleUser = await User.create({
@@ -167,12 +168,17 @@ describe('role controller', () => {
       team: teamId,
     });
 
-    await expect(
-      assignRole(teamId, soleUser._id.toString(), member!._id.toString()),
-    ).rejects.toBeInstanceOf(RoleConflictError);
+    await assignRole(teamId, soleUser._id.toString(), member!._id.toString());
+
+    const reloaded = await User.findById(soleUser._id);
+    expect(reloaded!.role!.toString()).toBe(member!._id.toString());
   });
 
-  it('treats a role-less user as an admin when counting remaining admins', async () => {
+  // BUG-1 fix: a role-less user is no longer counted as an admin, so it can no
+  // longer stand in for a "remaining admin" that lets the last real
+  // isAdmin-role holder be demoted. Previously this silently succeeded and
+  // left the team with zero admin-role holders.
+  it('refuses to demote the last isAdmin-role holder even when a role-less user exists', async () => {
     await seedSystemRoles(teamId);
     const admin = await getAdminRole(teamId);
     const member = await Role.findOne({ team: teamId, name: 'Member' });
@@ -181,14 +187,11 @@ describe('role controller', () => {
       team: teamId,
       role: admin!._id,
     });
-    // A second, role-less user is also an effective admin, so demoting the
-    // explicit one is safe.
     await User.create({ email: 'other@example.com', team: teamId });
 
-    await assignRole(teamId, held._id.toString(), member!._id.toString());
-
-    const reloaded = await User.findById(held._id);
-    expect(reloaded!.role!.toString()).toBe(member!._id.toString());
+    await expect(
+      assignRole(teamId, held._id.toString(), member!._id.toString()),
+    ).rejects.toBeInstanceOf(RoleConflictError);
   });
 
   it('rejects a duplicate role name with a conflict, not a raw driver error', async () => {
