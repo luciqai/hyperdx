@@ -271,10 +271,14 @@ path also calls `GET /connections`, which requires `connections: read` — `none
 Member and ReadOnly. The section renders, then shows *"Failed to load sources · 403"*
 with a Retry that re-fails.
 
-**Fix — remove the dependency, not the section.** `GET /sources` inlines each source's
-connection **name** alongside its id, so the list view never calls `/connections` and the
-`sources: read` gate becomes self-consistent. External API v2 consumers get the same
-field.
+**Fix — remove the dependency, not the section.** The internal `GET /sources` inlines
+each source's connection **name** alongside its id, so the list view never calls
+`/connections` and the `sources: read` gate becomes self-consistent.
+
+Scoped to the internal route. `GET /api/v2/sources` shapes its response through
+`formatExternalSource`, and changing that ripples across two handlers and a published
+schema to serve no finding — v2 has no equivalent UI dependency. It can follow later if
+an API consumer asks for it.
 
 Hiding the section from Member and ReadOnly was rejected: ClickStack's ReadOnly can read
 Sources, and a permission model where a `read` grant produces an error page is broken
