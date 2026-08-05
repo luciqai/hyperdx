@@ -2247,16 +2247,20 @@ export function hasPermission(
 
 // `users` has no manage level and `team` has no none level: those cells do not
 // exist in the vocabulary, so no role can ever hold them.
-export const RolePermissionsSchema = z.object({
-  dashboards: PermissionLevelSchema,
-  savedSearches: PermissionLevelSchema,
-  sources: PermissionLevelSchema,
-  alerts: PermissionLevelSchema,
-  webhooks: PermissionLevelSchema,
-  connections: PermissionLevelSchema,
-  users: z.enum(['none', 'read']),
-  team: z.enum(['read', 'manage']),
-});
+export const RolePermissionsSchema = z
+  .object({
+    dashboards: PermissionLevelSchema,
+    savedSearches: PermissionLevelSchema,
+    sources: PermissionLevelSchema,
+    alerts: PermissionLevelSchema,
+    webhooks: PermissionLevelSchema,
+    connections: PermissionLevelSchema,
+    users: z.enum(['none', 'read']),
+    team: z.enum(['read', 'manage']),
+  })
+  // BUG-10: an unknown key on the permission map (e.g. isAdmin) is inert
+  // today but looks like a capability, which invites a future misread.
+  .strict();
 export type RolePermissions = z.infer<typeof RolePermissionsSchema>;
 
 export const RoleSchema = z.object({
@@ -2271,11 +2275,15 @@ export const RoleSchema = z.object({
 export type Role = z.infer<typeof RoleSchema>;
 
 /** Client-supplied role payload. isSystem/isAdmin are absent by construction. */
-export const RoleInputSchema = z.object({
-  name: z.string().min(1).max(64),
-  description: z.string().max(256).optional(),
-  permissions: RolePermissionsSchema,
-});
+export const RoleInputSchema = z
+  .object({
+    name: z.string().min(1).max(64),
+    description: z.string().max(256).optional(),
+    permissions: RolePermissionsSchema,
+  })
+  // BUG-10: an unknown key on a role document that looks like a capability
+  // (permissions.isAdmin) is inert today and a misread waiting to happen.
+  .strict();
 export type RoleInput = z.infer<typeof RoleInputSchema>;
 
 export const SYSTEM_ROLE_NAMES = ['Admin', 'Member', 'ReadOnly'] as const;
