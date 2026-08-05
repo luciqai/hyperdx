@@ -163,15 +163,34 @@ describe('role controller', () => {
   it('does not block demoting a role-less user on an un-migrated team', async () => {
     await seedSystemRoles(teamId);
     const member = await Role.findOne({ team: teamId, name: 'Member' });
-    const soleUser = await User.create({
+    const first = await User.create({
       email: 'roleless@example.com',
       team: teamId,
     });
+    // A second role-less user remains, so this is not the terminal write that
+    // the admin-less guard refuses — see lastAdmin.int.test.ts.
+    await User.create({ email: 'roleless2@example.com', team: teamId });
 
-    await assignRole(teamId, soleUser._id.toString(), member!._id.toString());
+    await assignRole(teamId, first._id.toString(), member!._id.toString());
 
-    const reloaded = await User.findById(soleUser._id);
+    const reloaded = await User.findById(first._id);
     expect(reloaded!.role!.toString()).toBe(member!._id.toString());
+  });
+
+  // The second, independent invariant: the fail-open population is real admin
+  // access, and draining it to zero while nobody holds an Admin role cannot be
+  // undone through the API.
+  it('blocks the write that would leave no admin holder and no role-less user', async () => {
+    await seedSystemRoles(teamId);
+    const member = await Role.findOne({ team: teamId, name: 'Member' });
+    const soleUser = await User.create({
+      email: 'sole@example.com',
+      team: teamId,
+    });
+
+    await expect(
+      assignRole(teamId, soleUser._id.toString(), member!._id.toString()),
+    ).rejects.toBeInstanceOf(RoleConflictError);
   });
 
   // BUG-1 fix: a role-less user is no longer counted as an admin, so it can no

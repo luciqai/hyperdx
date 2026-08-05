@@ -9,6 +9,8 @@ import mongoose from 'mongoose';
 import type { ObjectId } from '@/models';
 import Role, { type IRole, type RoleDocument } from '@/models/role';
 import User from '@/models/user';
+import { getCounter } from '@/utils/instrumentation';
+import logger from '@/utils/logger';
 
 /** Thrown when an invariant blocks the write. Surfaces as HTTP 409. */
 export class RoleConflictError extends Error {
@@ -19,6 +21,14 @@ export class RoleConflictError extends Error {
   }
 }
 
+const roleIndexBuildFailedCounter = getCounter(
+  'hyperdx.rbac.role_index_build_failed',
+  {
+    description:
+      'Failures to build the roles {team, name} unique index. Non-zero means duplicate roles already exist and must be cleaned up by hand.',
+  },
+);
+
 /**
  * Mongoose builds indexes in the background, so the {team, name} unique index
  * may not exist yet during the first registration on a fresh database — the
@@ -26,11 +36,33 @@ export class RoleConflictError extends Error {
  * Admin roles in 7 of 20 trials. Once duplicates exist the index can never
  * build, which also wedges the migration's own createIndex.
  *
- * Memoised: only the first caller in the process waits.
+ * Memoised on SUCCESS only: the first caller in the process waits, the rest
+ * ride its promise.
+ *
+ * A rejection is deliberately neither propagated nor memoised. `Role.init()`
+ * rejects precisely on a deployment that already has duplicate {team, name}
+ * roles — the population this barrier exists to help. Propagating would make
+ * registration and invite acceptance start failing where they previously
+ * succeeded, and caching the rejection would keep them failing even after an
+ * operator cleaned the duplicates up, until the process was restarted. The
+ * E11000 catch in `seedSystemRoles` already handles the racing-insert case
+ * this barrier is an optimisation for, so degrading to that is safe.
  */
-let roleIndexesReady: Promise<unknown> | null = null;
-function ensureRoleIndexes(): Promise<unknown> {
-  roleIndexesReady ??= Role.init();
+let roleIndexesReady: Promise<void> | null = null;
+function ensureRoleIndexes(): Promise<void> {
+  roleIndexesReady ??= Role.init().then(
+    () => undefined,
+    err => {
+      // Clear the memo so a later call retries — the operator's duplicate
+      // cleanup should take effect without a restart.
+      roleIndexesReady = null;
+      roleIndexBuildFailedCounter.add(1);
+      logger.warn(
+        { err },
+        'RBAC: could not build the roles {team, name} unique index; continuing without the seed barrier. Duplicate roles likely exist and must be removed by hand.',
+      );
+    },
+  );
   return roleIndexesReady;
 }
 
@@ -155,12 +187,18 @@ async function getAdminRoleIds(teamId: string | ObjectId): Promise<ObjectId[]> {
  * returning 200 or 409 depending on invisible state. The guard's callers
  * instead check that the *target* holds an admin role, which keeps
  * un-migrated teams usable without weakening the invariant.
+ *
+ * Role-less users are counted separately by `countRoleLessUsers`, for the
+ * independent admin-less invariant. See that function for why.
+ *
+ * Takes `adminRoleIds` rather than looking them up so a caller making several
+ * checks in one operation issues one `Role.find` instead of one per check.
  */
 async function countAdminRoleHolders(
   teamId: string | ObjectId,
+  adminRoleIds: ObjectId[],
   excludeUserId?: ObjectId | string,
 ): Promise<number> {
-  const adminRoleIds = await getAdminRoleIds(teamId);
   if (adminRoleIds.length === 0) return 0;
 
   return User.countDocuments({
@@ -170,15 +208,58 @@ async function countAdminRoleHolders(
   });
 }
 
-/** Whether this user currently holds one of the team's isAdmin roles. */
-async function holdsAdminRole(
+/**
+ * Users holding no role at all.
+ *
+ * These are the *other* population that passes `requireAdmin`: `resolveVerdict`
+ * fails open for a role-less session user, so on an un-migrated team they are
+ * the team's only admin access. `countAdminRoleHolders` cannot see them, and
+ * must not — but something has to, because a team with zero admin-role holders
+ * AND zero role-less users has nobody who can pass `requireAdmin` at all.
+ * Every route that could repair that (`POST /team/roles`,
+ * `PATCH /team/roles/:id`, `PATCH /team/members/:id/role`) is itself
+ * `requireAdmin()`, so the state is unrecoverable through the API — only
+ * direct Mongo surgery gets the team back.
+ */
+async function countRoleLessUsers(
   teamId: string | ObjectId,
+  excludeUserId?: ObjectId | string,
+): Promise<number> {
+  return User.countDocuments({
+    team: teamId,
+    // `role` is absent rather than null on users written before the field
+    // existed; `$in: [null, undefined]` matches both. Same filter the RBAC
+    // migration uses to find the users it needs to backfill.
+    role: { $in: [null, undefined] },
+    ...(excludeUserId ? { _id: { $ne: excludeUserId } } : {}),
+  });
+}
+
+/** Whether this user currently holds one of the team's isAdmin roles. */
+function holdsAdminRole(
+  adminRoleIds: ObjectId[],
   user: { role?: ObjectId | null },
-): Promise<boolean> {
+): boolean {
   if (user.role == null) return false;
-  const adminRoleIds = await getAdminRoleIds(teamId);
   return adminRoleIds.some(id => id.toString() === user.role!.toString());
 }
+
+/** The last user holding an isAdmin role cannot be demoted or removed. */
+const LAST_ADMIN_MESSAGE =
+  'This is the last Admin. Promote someone else to Admin first.';
+
+const LAST_ADMIN_REMOVAL_MESSAGE =
+  "The last admin can't be removed. Promote someone else first.";
+
+/**
+ * Distinct from the last-admin message on purpose: the condition is different
+ * and so is the operator's next action. "Promote someone else to Admin" is
+ * meaningless advice on a team where nobody holds the Admin role in the first
+ * place — what they have to do is assign it.
+ */
+const noAdminRoleMessage = (action: 'changing' | 'removing') =>
+  'This team has no Admin role assigned. Give someone the Admin role before ' +
+  `${action} this user.`;
 
 export async function updateRole(
   teamId: string | ObjectId,
@@ -255,20 +336,42 @@ export async function assignRole(
   if (!nextRole) throw new RoleConflictError('Role not found');
 
   const previousRoleId = user.role;
+  // One Role.find for the whole call, including the rollback path below.
+  const adminRoleIds = await getAdminRoleIds(teamId);
   // Captured before the write: the rollback below must know whether this user
   // was an admin, and the answer changes once the write lands.
-  const wasAdmin = await holdsAdminRole(teamId, user);
+  const wasAdmin = holdsAdminRole(adminRoleIds, user);
 
-  // Last-admin protection. §9.2: the last user *holding* an isAdmin role
-  // cannot be demoted. A user who holds no admin role cannot be the last one,
-  // so the guard does not fire for them — which is what keeps an un-migrated
-  // team (nobody holds an admin role) from becoming unmanageable.
-  if (!nextRole.isAdmin && wasAdmin) {
-    const remaining = await countAdminRoleHolders(teamId, user._id);
-    if (remaining === 0) {
-      throw new RoleConflictError(
-        'This is the last Admin. Promote someone else to Admin first.',
-      );
+  // Both guards below are phrased as "what the team looks like *after* this
+  // write". `nextRole` is always a real role, so the target is never role-less
+  // afterwards, and an isAdmin `nextRole` can never reduce either population —
+  // hence the single `!nextRole.isAdmin` gate.
+  if (!nextRole.isAdmin) {
+    const remainingAdmins = await countAdminRoleHolders(
+      teamId,
+      adminRoleIds,
+      user._id,
+    );
+
+    if (remainingAdmins === 0) {
+      // Guard 1 — last-admin protection. §9.2: the last user *holding* an
+      // isAdmin role cannot be demoted. A user who holds no admin role cannot
+      // be the last one, so this does not fire for them — which is what keeps
+      // an un-migrated team (nobody holds an admin role) manageable.
+      if (wasAdmin) {
+        throw new RoleConflictError(LAST_ADMIN_MESSAGE);
+      }
+
+      // Guard 2 — admin-less protection, independent of guard 1. Guard 1
+      // protects only holders of an isAdmin role; role-less users are the
+      // other population that passes `requireAdmin` (session fail-open), and
+      // nothing preserved them. Demoting them one by one on a team that holds
+      // no Admin role walks it to zero callers who can pass `requireAdmin`,
+      // which no API route can undo. Only the terminal write is refused, so
+      // un-migrated teams stay usable right up to that point.
+      if ((await countRoleLessUsers(teamId, user._id)) === 0) {
+        throw new RoleConflictError(noAdminRoleMessage('changing'));
+      }
     }
   }
 
@@ -276,34 +379,54 @@ export async function assignRole(
   await user.save();
 
   // Re-check after the write. Two concurrent demotions can each observe one
-  // other admin remaining and both commit, leaving zero — an unrecoverable
-  // state. Roll this one back if that happened.
-  if (
-    !nextRole.isAdmin &&
-    wasAdmin &&
-    (await countAdminRoleHolders(teamId)) === 0
-  ) {
-    user.role = previousRoleId;
-    await user.save();
-    throw new RoleConflictError(
-      'This is the last Admin. Promote someone else to Admin first.',
-    );
+  // survivor and both commit, leaving zero — an unrecoverable state. That race
+  // exists for the role-less population too, so the recheck mirrors both
+  // guards above rather than only the last-admin one. Roll this one back if it
+  // happened.
+  if (!nextRole.isAdmin) {
+    const admins = await countAdminRoleHolders(teamId, adminRoleIds);
+    if (admins === 0) {
+      const rollback = async (message: string) => {
+        user.role = previousRoleId;
+        await user.save();
+        throw new RoleConflictError(message);
+      };
+
+      if (wasAdmin) await rollback(LAST_ADMIN_MESSAGE);
+      if ((await countRoleLessUsers(teamId)) === 0) {
+        await rollback(noAdminRoleMessage('changing'));
+      }
+    }
   }
 }
 
 /**
- * True when removing this user would leave the team with no admin-role holder.
+ * Why this user cannot be removed from the team, or `null` if they can be.
  *
- * Only ever true for a user who currently holds an `isAdmin` role — see
- * `countAdminRoleHolders` for why role-less users are not counted.
+ * Returns a message rather than a boolean because two different invariants can
+ * block a removal and the operator's next action differs between them:
+ *
+ *  1. They are the last holder of an `isAdmin` role.
+ *  2. Nobody holds an `isAdmin` role and they are the last role-less user, who
+ *     passes `requireAdmin` through the session fail-open. Removing them
+ *     strands the team with no caller who can pass `requireAdmin` at all —
+ *     see `countRoleLessUsers`.
  */
-export async function isLastAdmin(
+export async function getMemberRemovalConflict(
   teamId: string | ObjectId,
   userId: string | ObjectId,
-): Promise<boolean> {
+): Promise<string | null> {
   const user = await User.findOne({ _id: userId, team: teamId });
-  if (!user) return false;
-  if (!(await holdsAdminRole(teamId, user))) return false;
+  if (!user) return null;
 
-  return (await countAdminRoleHolders(teamId, userId)) === 0;
+  const adminRoleIds = await getAdminRoleIds(teamId);
+  if ((await countAdminRoleHolders(teamId, adminRoleIds, userId)) > 0) {
+    return null;
+  }
+
+  if (holdsAdminRole(adminRoleIds, user)) return LAST_ADMIN_REMOVAL_MESSAGE;
+
+  return (await countRoleLessUsers(teamId, userId)) === 0
+    ? noAdminRoleMessage('removing')
+    : null;
 }

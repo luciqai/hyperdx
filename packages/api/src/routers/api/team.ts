@@ -13,7 +13,11 @@ import pick from 'lodash/pick';
 import { z } from 'zod';
 import { processRequest, validateRequest } from 'zod-express-middleware';
 
-import { assignRole, isLastAdmin, RoleConflictError } from '@/controllers/role';
+import {
+  assignRole,
+  getMemberRemovalConflict,
+  RoleConflictError,
+} from '@/controllers/role';
 import {
   getTags,
   getTeam,
@@ -367,12 +371,17 @@ router.delete(
         throw new Error(`Requesting user has no id`);
       }
 
-      // Same invariant as role reassignment: a team must always keep one admin.
-      if (await isLastAdmin(teamId, userIdToDelete)) {
-        return res.status(409).json({
-          message:
-            "The last admin can't be removed. Promote someone else first.",
-        });
+      // Same invariants as role reassignment: a team must always keep one
+      // admin-role holder, and must never be drained of *everyone* who can
+      // pass requireAdmin — which on an un-migrated team means its role-less
+      // users. The controller returns the message because which invariant
+      // fired determines what the operator has to do next.
+      const removalConflict = await getMemberRemovalConflict(
+        teamId,
+        userIdToDelete,
+      );
+      if (removalConflict) {
+        return res.status(409).json({ message: removalConflict });
       }
 
       await deleteTeamMember(teamId, userIdToDelete, userIdRequestingDelete);
