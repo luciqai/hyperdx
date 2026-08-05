@@ -103,4 +103,64 @@ describe('add_rbac_roles migration', () => {
     // Must NOT be clobbered back to Admin.
     expect(user!.role.toString()).toBe(readOnly!._id.toString());
   });
+
+  // BUG-3: the $setOnInsert upsert matched the existing role by {team,name}
+  // and inserted nothing, so findOne({isAdmin:true}) returned null and
+  // admin!._id threw — leaving Member + ReadOnly seeded, no admin role, no
+  // user assigned, and no migrate-mongo changelog entry.
+  it('aborts before any write when a non-system role uses a reserved name', async () => {
+    const db = mongooseConnection.db!;
+    const teamId = new Types.ObjectId();
+    await db.collection('teams').insertOne({ _id: teamId, name: 'T' });
+    await db.collection('roles').insertOne({
+      team: teamId,
+      name: 'Admin',
+      isSystem: false,
+      isAdmin: false,
+      permissions: {},
+    });
+
+    await expect(migration.up(db)).rejects.toThrow(/aborted before any write/);
+
+    // Nothing was seeded — the operator repairs from a clean state.
+    const roles = await db.collection('roles').find({ team: teamId }).toArray();
+    expect(roles).toHaveLength(1);
+    expect(roles[0].name).toBe('Admin');
+    expect(roles[0].isSystem).toBe(false);
+  });
+
+  it('names the offending team and role in the error', async () => {
+    const db = mongooseConnection.db!;
+    const teamId = new Types.ObjectId();
+    await db.collection('teams').insertOne({ _id: teamId, name: 'T' });
+    await db
+      .collection('roles')
+      .insertOne({
+        team: teamId,
+        name: 'ReadOnly',
+        isSystem: false,
+        permissions: {},
+      });
+
+    await expect(migration.up(db)).rejects.toThrow(
+      new RegExp(`${teamId.toString()}[\\s\\S]*ReadOnly`),
+    );
+  });
+
+  it('seeds normally when no reserved name is taken', async () => {
+    const db = mongooseConnection.db!;
+    const teamId = new Types.ObjectId();
+    await db.collection('teams').insertOne({ _id: teamId, name: 'T' });
+    await db.collection('users').insertOne({ team: teamId, email: 'a@x.test' });
+
+    await migration.up(db);
+
+    const roles = await db.collection('roles').find({ team: teamId }).toArray();
+    expect(roles).toHaveLength(3);
+    const admin = roles.find((r: any) => r.isAdmin === true);
+    expect(admin).toBeDefined();
+
+    const user = await db.collection('users').findOne({ team: teamId });
+    expect(user!.role.toString()).toBe(admin!._id.toString());
+  });
 });
