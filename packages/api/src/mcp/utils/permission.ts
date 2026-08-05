@@ -27,12 +27,18 @@ export type PermissionCheck = { ok: true } | { ok: false; message: string };
 
 /**
  * Pure permission decision for an MCP tool or prompt, given an
- * already-resolved verdict. Split out of `checkToolPermission` so callers
- * that must resolve the verdict once and reuse it across multiple permission
- * checks (the prompt registrar registers several prompts per server, but the
- * verdict is fixed for the server's lifetime) can avoid re-triggering
- * `resolveVerdict`'s side effects. See `checkToolPermission` for why that
- * matters.
+ * already-resolved verdict.
+ *
+ * The verdict is a parameter rather than something this resolves itself
+ * because `resolveVerdict` carries side effects — `hyperdx.rbac.missing_role`
+ * and its WARN — that must fire exactly once per request, while a single
+ * request can consult this many times (the prompt registrar registers several
+ * prompts per server, and the verdict is fixed for the server's lifetime).
+ * Callers resolve once through `createVerdictGate` below and pass the result
+ * in.
+ *
+ * MCP is always access-key authenticated, so a missing role denies — the
+ * browser's fail-open does not apply here (slice C spec §7).
  */
 export function checkPermissionForVerdict(
   verdict: Verdict,
@@ -72,32 +78,6 @@ export function checkPermissionForVerdict(
       `Permission denied: this action requires ${resource}: ${level}. ` +
       `Your role is "${role?.name ?? 'unknown'}".`,
   };
-}
-
-/**
- * Pure permission decision for an MCP tool. Kept separate from the wrapper so
- * it is unit-testable without constructing a server or a transport.
- *
- * MCP is always access-key authenticated, so a missing role denies — the
- * browser's fail-open does not apply here (slice C spec §7).
- *
- * Resolves the verdict itself, and therefore fires `resolveVerdict`'s side
- * effects (`hyperdx.rbac.missing_role` and its WARN) on every call. That must
- * happen once per request, so the registrars do NOT use this — they share a
- * `createVerdictGate` instead. This remains the single-shot entry point for
- * callers that make exactly one decision per request, and the unit-test
- * surface for the decision logic.
- */
-export function checkToolPermission(
-  role: RoleLike,
-  permission: ToolPermission,
-  userId?: string,
-): PermissionCheck {
-  return checkPermissionForVerdict(
-    resolveVerdict(role, 'access-key', userId),
-    role,
-    permission,
-  );
 }
 
 /**

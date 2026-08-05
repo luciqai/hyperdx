@@ -1,6 +1,22 @@
-import { checkToolPermission } from '@/mcp/utils/permission';
+import type { ToolPermission } from '@/mcp/tools/types';
+import { checkPermissionForVerdict } from '@/mcp/utils/permission';
+import { resolveVerdict, type RoleLike } from '@/middleware/rbac';
 
 jest.mock('@/config', () => ({ IS_LOCAL_APP_MODE: false }));
+
+/**
+ * The MCP decision as a single call, for tests that assert one outcome at a
+ * time. Production splits verdict resolution from the permission check so the
+ * verdict's telemetry fires once per request rather than once per registered
+ * tool — see `createVerdictGate`. Composing them here keeps each case a
+ * one-liner without asking production code to carry a shape nothing uses.
+ */
+const checkToolPermission = (role: RoleLike, permission: ToolPermission) =>
+  checkPermissionForVerdict(
+    resolveVerdict(role, 'access-key'),
+    role,
+    permission,
+  );
 
 const ADMIN = { name: 'Admin', isAdmin: true, permissions: {} };
 const MEMBER = {
