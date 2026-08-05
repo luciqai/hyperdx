@@ -28,12 +28,20 @@ const defaultRateLimiter = rateLimiter({
 });
 
 // Runs BEFORE authentication, so failed key guesses from one origin share a
-// bucket (BUG-8). Generous enough not to bite a legitimate multi-user NAT.
+// bucket (BUG-8).
+//
+// `skipSuccessfulRequests` is what makes this a *failed-attempt* meter rather
+// than a second traffic limiter. Without it, a shared origin — one NAT, one
+// corporate proxy, one CI runner — spends this 300/min budget on legitimate
+// authenticated traffic, and four users each staying inside their own 100/min
+// `defaultRateLimiter` allowance would 429 the whole /api/v2 surface for
+// everyone behind that IP. Throughput is governed per-user, behind auth.
 const authAttemptRateLimiter = rateLimiter({
   windowMs: 60 * 1000,
   max: 300,
   standardHeaders: true,
   legacyHeaders: false,
+  skipSuccessfulRequests: true,
   keyGenerator: ipOnlyKeyGenerator,
 });
 

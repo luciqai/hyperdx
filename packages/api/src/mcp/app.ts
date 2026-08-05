@@ -27,11 +27,19 @@ const mcpRateLimiter = rateLimiter({
 // Runs BEFORE authentication (the GET/DELETE 405 handlers below, and in front
 // of validateUserAccessKey on POST), so failed key guesses from one origin
 // share a bucket (BUG-8) instead of each guess getting its own.
+//
+// `skipSuccessfulRequests` keeps it a failed-attempt meter rather than a
+// second traffic limiter: agents behind one NAT would otherwise share this
+// 900/min origin budget for successful calls while each stays well inside its
+// own `mcpRateLimiter` allowance. Throughput is governed per-user, behind
+// auth. Note the 405 responses above are errors, so probing GET/DELETE still
+// counts.
 const mcpAuthAttemptRateLimiter = rateLimiter({
   windowMs: 60 * 1000,
   max: 900,
   standardHeaders: true,
   legacyHeaders: false,
+  skipSuccessfulRequests: true,
   keyGenerator: ipOnlyKeyGenerator,
 });
 
