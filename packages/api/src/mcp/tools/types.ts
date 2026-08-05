@@ -62,7 +62,7 @@ export type RegisterToolFn = <TSchema extends AnyZodObject>(
     inputSchema: TSchema;
     /**
      * Required. A tool that declares nothing fails to compile, which is the
-     * compile-time half of the coverage guarantee; assertToolCoverage is the
+     * compile-time half of the coverage guarantee; assertMcpCoverage is the
      * runtime half.
      */
     permission: ToolPermission;

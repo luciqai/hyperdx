@@ -10,8 +10,12 @@ import savedSearchesTools from './tools/savedSearches/index';
 import sourcesTools from './tools/sources/index';
 import traceTools from './tools/trace/index';
 import { McpContext } from './tools/types';
+import { assertMcpCoverage } from './utils/coverage';
 import {
-  assertToolCoverage,
+  createRegisterPrompt,
+  type DeclaredPrompts,
+} from './utils/registerPrompt';
+import {
   createRegisterTool,
   type DeclaredPermissions,
 } from './utils/registerTool';
@@ -22,8 +26,10 @@ export function createServer(context: McpContext) {
     version: `${CODE_VERSION}-beta`,
   });
 
-  const declared: DeclaredPermissions = new Map();
-  const registerTool = createRegisterTool(server, context, declared);
+  const declaredTools: DeclaredPermissions = new Map();
+  const declaredPrompts: DeclaredPrompts = new Map();
+  const registerTool = createRegisterTool(server, context, declaredTools);
+  const registerPrompt = createRegisterPrompt(server, context, declaredPrompts);
   const registrar = { server, context, registerTool };
 
   sourcesTools(registrar);
@@ -32,11 +38,13 @@ export function createServer(context: McpContext) {
   queryTools(registrar);
   savedSearchesTools(registrar);
   traceTools(registrar);
-  dashboardPrompts(server, context);
+  dashboardPrompts({ server, context, registerPrompt });
 
-  // Every tool must declare a permission. A new tool that forgets one fails
-  // here rather than shipping ungated — the runtime half of the guarantee.
-  assertToolCoverage(server, declared);
+  // Every tool AND prompt must declare a permission. A new one that forgets
+  // fails here rather than shipping ungated — the runtime half of the
+  // guarantee. Prompts are included because SEC-1 was exactly a prompt
+  // surface that this assertion could not see.
+  assertMcpCoverage(server, declaredTools, declaredPrompts);
 
   return server;
 }

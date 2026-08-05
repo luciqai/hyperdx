@@ -19,7 +19,7 @@ import { withToolTracing } from './tracing';
  *
  * A map rather than a symbol tagged onto the handler (the trick slice A uses
  * for Express layers) because the MCP SDK does not expose registered handlers
- * for inspection — `assertToolCoverage` reads this against the server's
+ * for inspection — `assertMcpCoverage` reads this against the server's
  * registered tool names.
  */
 export type DeclaredPermissions = Map<string, ToolPermission>;
@@ -69,40 +69,4 @@ export function createRegisterTool(
     );
     server.registerTool<AnyZodObject, AnyZodObject>(name, sdkConfig, traced);
   };
-}
-
-/**
- * Fails startup when a registered tool declares no permission.
- *
- * `permission` is required at the type level, so this is the runtime backstop
- * for anything reaching registration another way (a cast, a tool registered
- * directly on the server, a future refactor). Mirrors slice A's route
- * coverage assertion.
- */
-export function assertToolCoverage(
-  server: McpServer,
-  declared: DeclaredPermissions,
-): void {
-  // The SDK keeps registered tools in an internal record; read defensively so
-  // a shape change degrades to "cannot verify" rather than a false pass.
-  const registered: string[] = Object.keys(
-    (server as any)._registeredTools ?? {},
-  );
-
-  if (registered.length === 0) {
-    throw new Error(
-      'MCP tool coverage check could not enumerate registered tools. The SDK ' +
-        'internals may have changed — verify before shipping, since an empty ' +
-        'list would otherwise pass this assertion vacuously.',
-    );
-  }
-
-  const uncovered = registered.filter(name => !declared.has(name));
-  if (uncovered.length > 0) {
-    throw new Error(
-      `MCP tool coverage check failed. ${uncovered.length} tool(s) declare no permission:\n` +
-        uncovered.map(n => `  ${n}`).join('\n') +
-        `\n\nAdd a \`permission\` to each tool's registerTool config.`,
-    );
-  }
 }
