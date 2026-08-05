@@ -27,6 +27,7 @@ jest.mock('@/api', () => ({
   hdxServer: jest.fn(),
 }));
 
+// eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
 const asMock = (fn: unknown) => fn as jest.Mock;
 
 const perms = (isAdmin: boolean, granted: Record<string, string> = {}) =>

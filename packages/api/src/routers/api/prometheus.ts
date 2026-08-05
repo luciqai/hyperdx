@@ -12,8 +12,8 @@ import logger from '@/utils/logger';
 
 const router = express.Router();
 
-// SEC-2. Was noPermissionRequired('query-path-slice-B'); the PromQL path is a
-// query path and was reachable by a role holding sources: none.
+// SEC-2. This was previously exempted from the RBAC coverage check as a
+// query path; the PromQL path was reachable by a role holding sources: none.
 const queryPathGate = () => requirePermission('sources', 'read');
 
 // The proxy handlers catch their own errors and return Prometheus-shaped 4xx
