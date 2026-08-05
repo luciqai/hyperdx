@@ -155,63 +155,12 @@ describe('role controller', () => {
     expect(roles.find(r => r.name === 'Admin')!.memberCount).toBe(1);
   });
 
-  // BUG-1 fix: the guard now counts holders of an isAdmin role only, and only
-  // fires when the *target* holds one. A role-less sole user cannot be the
-  // last admin-role holder (there isn't one), so this un-migrated team stays
-  // manageable instead of getting permanently stuck. See
-  // lastAdmin.int.test.ts for the full invariant coverage.
-  it('does not block demoting a role-less user on an un-migrated team', async () => {
-    await seedSystemRoles(teamId);
-    const member = await Role.findOne({ team: teamId, name: 'Member' });
-    const first = await User.create({
-      email: 'roleless@example.com',
-      team: teamId,
-    });
-    // A second role-less user remains, so this is not the terminal write that
-    // the admin-less guard refuses — see lastAdmin.int.test.ts.
-    await User.create({ email: 'roleless2@example.com', team: teamId });
-
-    await assignRole(teamId, first._id.toString(), member!._id.toString());
-
-    const reloaded = await User.findById(first._id);
-    expect(reloaded!.role!.toString()).toBe(member!._id.toString());
-  });
-
-  // The second, independent invariant: the fail-open population is real admin
-  // access, and draining it to zero while nobody holds an Admin role cannot be
-  // undone through the API.
-  it('blocks the write that would leave no admin holder and no role-less user', async () => {
-    await seedSystemRoles(teamId);
-    const member = await Role.findOne({ team: teamId, name: 'Member' });
-    const soleUser = await User.create({
-      email: 'sole@example.com',
-      team: teamId,
-    });
-
-    await expect(
-      assignRole(teamId, soleUser._id.toString(), member!._id.toString()),
-    ).rejects.toBeInstanceOf(RoleConflictError);
-  });
-
-  // BUG-1 fix: a role-less user is no longer counted as an admin, so it can no
-  // longer stand in for a "remaining admin" that lets the last real
-  // isAdmin-role holder be demoted. Previously this silently succeeded and
-  // left the team with zero admin-role holders.
-  it('refuses to demote the last isAdmin-role holder even when a role-less user exists', async () => {
-    await seedSystemRoles(teamId);
-    const admin = await getAdminRole(teamId);
-    const member = await Role.findOne({ team: teamId, name: 'Member' });
-    const held = await User.create({
-      email: 'held@example.com',
-      team: teamId,
-      role: admin!._id,
-    });
-    await User.create({ email: 'other@example.com', team: teamId });
-
-    await expect(
-      assignRole(teamId, held._id.toString(), member!._id.toString()),
-    ).rejects.toBeInstanceOf(RoleConflictError);
-  });
+  // The role-less / admin-less invariants (un-migrated teams, the terminal
+  // write that would strand a team with nobody who can pass `requireAdmin`,
+  // and the last isAdmin-role holder alongside a role-less user) live in
+  // lastAdmin.int.test.ts, which owns them and additionally re-reads the
+  // document to confirm the rollback. Duplicating them here only cost suite
+  // time against a second Mongo fixture.
 
   it('rejects a duplicate role name with a conflict, not a raw driver error', async () => {
     await createRole(teamId, {
