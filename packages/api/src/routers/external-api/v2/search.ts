@@ -178,7 +178,9 @@ export function validateColumnsExpression(value: string): boolean {
   return !DISALLOWED_COLUMNS_PATTERN.test(stripped);
 }
 
-const searchRequestSchema = z
+// Exported for testing only (schema-level guard wiring); not part of the
+// public module surface otherwise.
+export const searchRequestSchema = z
   .object({
     sourceId: z
       .string()

@@ -193,7 +193,9 @@ const apiGranularitySchema =
 // not on the outer /series request body, so the guard is attached here rather
 // than on the request schema as a whole. BUG-9: this route carried no
 // expression guard whatsoever — a plain subquery in a series' `where` worked.
-const guardedSeriesSchema = externalQueryChartSeriesSchema.superRefine(
+// Exported for testing only (schema-level guard wiring); not part of the
+// public module surface otherwise.
+export const guardedSeriesSchema = externalQueryChartSeriesSchema.superRefine(
   (val, ctx) => {
     if (val.whereLanguage === 'sql' && !validateColumnsExpression(val.where)) {
       ctx.addIssue({
