@@ -53,11 +53,29 @@ const authAttemptRateLimiter = rateLimiter({
   keyGenerator: ipOnlyKeyGenerator,
 });
 
-router.get(
-  '/',
+/**
+ * The entry stack every /api/v2 mount shares. The order is security
+ * load-bearing and is the reason this is one array rather than nine
+ * hand-written copies:
+ *
+ *  1. `authAttemptRateLimiter` must sit in FRONT of authentication — it meters
+ *     failed key guesses, which never reach a later middleware (BUG-8).
+ *  2. `validateUserAccessKey` establishes `req.user`.
+ *  3. `defaultRateLimiter` keys on that authenticated user, so it must follow.
+ *
+ * Express flattens an array of handlers, so this mounts identically to listing
+ * the three inline. None of them carries an RBAC declaration tag, so the boot
+ * coverage walker still sees each route's own `requirePermission` / `requireAdmin`.
+ */
+const authenticatedV2 = [
   authAttemptRateLimiter,
   validateUserAccessKey,
   defaultRateLimiter,
+];
+
+router.get(
+  '/',
+  authenticatedV2,
   // Identity check: returns the caller's own user record.
   noPermissionRequired('personal-state'),
   (req, res) => {
@@ -68,76 +86,22 @@ router.get(
   },
 );
 
-router.use(
-  '/alerts',
-  authAttemptRateLimiter,
-  validateUserAccessKey,
-  defaultRateLimiter,
-  alertsRouter,
-);
+router.use('/alerts', authenticatedV2, alertsRouter);
 
-router.use(
-  '/charts',
-  authAttemptRateLimiter,
-  validateUserAccessKey,
-  defaultRateLimiter,
-  chartsRouter,
-);
+router.use('/charts', authenticatedV2, chartsRouter);
 
-router.use(
-  '/connections',
-  authAttemptRateLimiter,
-  validateUserAccessKey,
-  defaultRateLimiter,
-  connectionsRouter,
-);
+router.use('/connections', authenticatedV2, connectionsRouter);
 
-router.use(
-  '/dashboards',
-  authAttemptRateLimiter,
-  validateUserAccessKey,
-  defaultRateLimiter,
-  dashboardRouter,
-);
+router.use('/dashboards', authenticatedV2, dashboardRouter);
 
-router.use(
-  '/sources',
-  authAttemptRateLimiter,
-  validateUserAccessKey,
-  defaultRateLimiter,
-  sourcesRouter,
-);
+router.use('/sources', authenticatedV2, sourcesRouter);
 
-router.use(
-  '/saved-searches',
-  authAttemptRateLimiter,
-  validateUserAccessKey,
-  defaultRateLimiter,
-  savedSearchesRouter,
-);
+router.use('/saved-searches', authenticatedV2, savedSearchesRouter);
 
-router.use(
-  '/search',
-  authAttemptRateLimiter,
-  validateUserAccessKey,
-  defaultRateLimiter,
-  searchRouter,
-);
+router.use('/search', authenticatedV2, searchRouter);
 
-router.use(
-  '/webhooks',
-  authAttemptRateLimiter,
-  validateUserAccessKey,
-  defaultRateLimiter,
-  webhooksRouter,
-);
+router.use('/webhooks', authenticatedV2, webhooksRouter);
 
-router.use(
-  '/team',
-  authAttemptRateLimiter,
-  validateUserAccessKey,
-  defaultRateLimiter,
-  teamRouter,
-);
+router.use('/team', authenticatedV2, teamRouter);
 
 export default router;
