@@ -2,7 +2,7 @@ import {
   hasPermission,
   RolePermissionsSchema,
   SYSTEM_ROLE_PERMISSIONS,
-} from '../types';
+} from '@/types';
 
 describe('hasPermission', () => {
   it('grants when held level outranks required', () => {

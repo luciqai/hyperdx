@@ -6,7 +6,7 @@
 Close 12 RBAC defects found by a manual test pass over the role-based access
 control work.
 
-Three of these change behaviour for existing deployments:
+Four of these change behaviour for existing deployments:
 
 - **`/clickhouse-proxy` and `/v1/prometheus` now require `sources: read`.** All
   three system roles hold it, so Admin, Member and ReadOnly are unaffected. A
@@ -22,6 +22,10 @@ Three of these change behaviour for existing deployments:
   reading join links from `GET /team/invitations` or
   `GET /api/v2/team/invitations` under a non-admin key will no longer receive
   the `url` field. The list itself is unchanged.
+- **`POST /team/roles` and `PATCH /team/roles/:id` now reject unknown keys.** The
+  role request schemas are strict, so a client that previously sent extra
+  properties alongside `name`, `description` and `permissions` and had them
+  silently ignored now gets a 400 instead.
 
 Also fixed: the last-admin guard no longer falls silent when an un-migrated
 user exists; the RBAC Mongo migration aborts cleanly instead of half-seeding a

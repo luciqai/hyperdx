@@ -72,10 +72,14 @@ describe('/team/roles', () => {
     expect(res.body.isAdmin).toBe(false);
   });
 
-  it('strips isAdmin from the request body', async () => {
+  // The role schemas are `.strict()`, so an escalation attempt is now rejected
+  // at validation rather than accepted-and-stripped. `createRole` still never
+  // reads isAdmin/isSystem from the input — this is the outer of the two
+  // layers, and the one a client can observe.
+  it('rejects isAdmin and isSystem in the request body', async () => {
     const { agent } = await asAdmin();
 
-    const res = await agent
+    await agent
       .post('/team/roles')
       .send({
         name: 'Escalation attempt',
@@ -83,10 +87,9 @@ describe('/team/roles', () => {
         isAdmin: true,
         isSystem: true,
       })
-      .expect(200);
+      .expect(400);
 
-    expect(res.body.isAdmin).toBe(false);
-    expect(res.body.isSystem).toBe(false);
+    expect(await Role.findOne({ name: 'Escalation attempt' })).toBeNull();
   });
 
   it('rejects manage on users', async () => {
