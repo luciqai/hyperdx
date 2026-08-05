@@ -76,6 +76,25 @@ export type AuthPath = 'session' | 'access-key';
 export type Verdict = 'allow' | 'deny' | 'check';
 
 /**
+ * Users already warned about in this process. The counter below stays
+ * un-deduplicated — it is the durable half of §11.3 and must count every
+ * request — but the log line accrued 128+ entries in hours of probing, which
+ * buries the signal it exists to raise.
+ */
+const warnedMissingRole = new Set<string>();
+
+function warnMissingRoleOnce(
+  actorId: string | undefined,
+  authPath: AuthPath,
+  message: string,
+): void {
+  const key = `${authPath}:${actorId ?? 'unknown'}`;
+  if (warnedMissingRole.has(key)) return;
+  warnedMissingRole.add(key);
+  logger.warn({ userId: actorId, authPath }, message);
+}
+
+/**
  * Shared resolution order, cheapest first. Pure so both the Express middleware
  * and the MCP tool wrapper use identical logic.
  *
@@ -95,14 +114,16 @@ export function resolveVerdict(
   if (role == null) {
     missingRoleCounter.add(1, { path: authPath });
     if (authPath === 'access-key') {
-      logger.warn(
-        { userId: actorId, authPath },
+      warnMissingRoleOnce(
+        actorId,
+        authPath,
         'RBAC: access-key user has no role assigned; denying. Assign a role to this user.',
       );
       return 'deny';
     }
-    logger.warn(
-      { userId: actorId, authPath },
+    warnMissingRoleOnce(
+      actorId,
+      authPath,
       'RBAC: user has no role assigned; allowing as admin. Run the RBAC migration.',
     );
     return 'allow';
