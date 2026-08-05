@@ -17,7 +17,10 @@ import { getTeam } from '@/controllers/team';
 import { requirePermission } from '@/middleware/rbac';
 import { IConnection } from '@/models/connection';
 import { ISource } from '@/models/source';
-import { validateColumnsExpression } from '@/routers/external-api/v2/search';
+import {
+  refineSqlWhere,
+  validateColumnsExpression,
+} from '@/routers/external-api/v2/search';
 import { validateRequestWithEnhancedErrors as validateRequest } from '@/utils/enhancedErrors';
 import {
   getCounter,
@@ -211,14 +214,8 @@ const apiGranularitySchema =
 // public module surface otherwise.
 export const guardedSeriesSchema = externalQueryChartSeriesSchema.superRefine(
   (val, ctx) => {
-    if (val.whereLanguage === 'sql' && !validateColumnsExpression(val.where)) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['where'],
-        message:
-          'where must not contain semicolons or subqueries when whereLanguage is "sql"',
-      });
-    }
+    // `where` is the one input /search carries too, so its guard is shared.
+    refineSqlWhere(val, ctx);
 
     if (val.field != null && !validateColumnsExpression(val.field)) {
       ctx.addIssue({

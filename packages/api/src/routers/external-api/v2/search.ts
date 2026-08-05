@@ -178,6 +178,39 @@ export function validateColumnsExpression(value: string): boolean {
   return !DISALLOWED_COLUMNS_PATTERN.test(stripped);
 }
 
+/**
+ * The `where` half of the BUG-9 guard, shared by every request shape that
+ * carries a `where`/`whereLanguage` pair — the /search request body and the
+ * /charts/series per-series schema. Same predicate, same `path`, same message:
+ * one copy so the two surfaces cannot drift apart.
+ *
+ * Guarded only in SQL mode. In Lucene mode a literal search for "SELECT foo" is
+ * a legitimate query and must not 400.
+ *
+ * Guards for inputs that only one of those shapes has (charts' `field` and
+ * `groupBy`) stay with that shape.
+ */
+export function refineSqlWhere(
+  // `whereLanguage` is widened to `string` rather than a union: /search allows
+  // lucene|sql, chart series also allow promql, and every non-'sql' value takes
+  // the same (unguarded) branch. Narrowing here would only couple this helper
+  // to whichever caller happens to have the shorter list.
+  val: { where?: string; whereLanguage?: string },
+  ctx: z.RefinementCtx,
+): void {
+  if (
+    val.whereLanguage === 'sql' &&
+    !validateColumnsExpression(val.where ?? '')
+  ) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['where'],
+      message:
+        'where must not contain semicolons or subqueries when whereLanguage is "sql"',
+    });
+  }
+}
+
 // Exported for testing only (schema-level guard wiring); not part of the
 // public module surface otherwise.
 export const searchRequestSchema = z
@@ -258,19 +291,8 @@ export const searchRequestSchema = z
           'Prefer timestamp-cursor pagination for large datasets.',
       ),
   })
-  // `where` was unguarded entirely (BUG-9). Guard it only in SQL mode: in
-  // Lucene mode a literal search for "SELECT foo" is a legitimate query and
-  // must not 400.
-  .superRefine((val, ctx) => {
-    if (val.whereLanguage === 'sql' && !validateColumnsExpression(val.where)) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['where'],
-        message:
-          'where must not contain semicolons or subqueries when whereLanguage is "sql"',
-      });
-    }
-  });
+  // `where` was unguarded entirely (BUG-9) — see `refineSqlWhere` above.
+  .superRefine(refineSqlWhere);
 
 /**
  * @openapi
