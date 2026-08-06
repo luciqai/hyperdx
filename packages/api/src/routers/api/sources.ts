@@ -6,6 +6,7 @@ import express from 'express';
 import { z } from 'zod';
 import { validateRequest } from 'zod-express-middleware';
 
+import { getConnectionsByTeam } from '@/controllers/connection';
 import {
   createSource,
   deleteSource,
@@ -13,29 +14,49 @@ import {
   updateSource,
 } from '@/controllers/sources';
 import { getNonNullUserWithTeam } from '@/middleware/auth';
+import { requirePermission } from '@/middleware/rbac';
 import { objectIdSchema } from '@/utils/zod';
 
 const router = express.Router();
 
-router.get('/', async (req, res, next) => {
-  try {
-    const { teamId } = getNonNullUserWithTeam(req);
+router.get(
+  '/',
+  requirePermission('sources', 'read'),
+  async (req, res, next) => {
+    try {
+      const { teamId } = getNonNullUserWithTeam(req);
 
-    const sources = await getSources(teamId.toString());
+      // BUG-5. The list view previously fetched /connections itself just to
+      // render a name, which requires connections:read — `none` for Member and
+      // ReadOnly, so a sources:read grant produced a permanent 403 banner.
+      // Resolving the name here keeps the section's data need inside its own
+      // gate.
+      const [sources, connections] = await Promise.all([
+        getSources(teamId.toString()),
+        getConnectionsByTeam(teamId.toString()),
+      ]);
 
-    return res.json(
-      sources.map(
-        // @ts-expect-error source.toJSON has incompatible type signatures but is actually a safe operation
-        source => source.toJSON({ getters: true }),
-      ),
-    );
-  } catch (e) {
-    next(e);
-  }
-});
+      const connectionNameById = new Map(
+        connections.map(c => [c._id.toString(), c.name]),
+      );
+
+      return res.json(
+        sources.map(source => ({
+          // @ts-expect-error source.toJSON has incompatible type signatures but is actually a safe operation
+          ...source.toJSON({ getters: true }),
+          connectionName:
+            connectionNameById.get(source.connection?.toString()) ?? null,
+        })),
+      );
+    } catch (e) {
+      next(e);
+    }
+  },
+);
 
 router.post(
   '/',
+  requirePermission('sources', 'manage'),
   validateRequest({
     body: SourceSchemaNoId,
   }),
@@ -57,6 +78,7 @@ router.post(
 
 router.put(
   '/:id',
+  requirePermission('sources', 'manage'),
   validateRequest({
     body: SourceSchema,
     params: z.object({
@@ -86,6 +108,7 @@ router.put(
 
 router.delete(
   '/:id',
+  requirePermission('sources', 'manage'),
   validateRequest({
     params: z.object({
       id: objectIdSchema,

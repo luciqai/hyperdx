@@ -294,11 +294,17 @@ export default function TeamMembersSection() {
                       <Badge variant="dot" color="gray" fw="normal" tt="none">
                         Pending Invite
                       </Badge>
-                      <CopyToClipboard text={invitation.url}>
-                        <Button size="compact-xs" variant="secondary" ml="xs">
-                          📋 Copy URL
-                        </Button>
-                      </CopyToClipboard>
+                      {/* url is admin-only server-side (embeds an
+                          accept-capable token). Absent, not disabled — the
+                          UI must not advertise a control a Member never
+                          receives data for. */}
+                      {invitation.url && (
+                        <CopyToClipboard text={invitation.url}>
+                          <Button size="compact-xs" variant="secondary" ml="xs">
+                            📋 Copy URL
+                          </Button>
+                        </CopyToClipboard>
+                      )}
                     </Table.Td>
                     <Table.Td style={{ textAlign: 'right' }}>
                       {hasAdminAccess && (

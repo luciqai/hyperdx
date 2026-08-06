@@ -2372,7 +2372,8 @@ export const TeamInvitationSchema = z.object({
   createdAt: z.string(),
   email: z.string(),
   name: z.string().optional(),
-  url: z.string(),
+  // Admin-only: embeds an accept-capable token, so non-admins never receive it.
+  url: z.string().optional(),
 });
 
 export type TeamInvitation = z.infer<typeof TeamInvitationSchema>;
