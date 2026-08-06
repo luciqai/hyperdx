@@ -228,8 +228,17 @@ router.delete(
   async (req, res, next) => {
     try {
       const id = req.params.id;
+      const teamId = req.user?.team;
+      if (teamId == null) {
+        throw new Error(`User ${req.user?._id} not associated with a team`);
+      }
 
-      await TeamInvite.findByIdAndDelete(id);
+      // Scoped by team: deleting by _id alone let any authenticated user of
+      // any team remove another team's pending invite.
+      const deleted = await TeamInvite.findOneAndDelete({ _id: id, teamId });
+      if (!deleted) {
+        return res.status(404).json({ message: 'TeamInvite not found' });
+      }
 
       return res.json({ message: 'TeamInvite deleted' });
     } catch (e) {
