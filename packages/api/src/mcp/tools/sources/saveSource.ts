@@ -24,6 +24,7 @@ export function registerSaveSource({
   registerTool(
     'clickstack_save_source',
     {
+      permission: 'sources:manage',
       title: 'Create or Update Source',
       description:
         'Create a new data source (omit id) or update an existing one ' +

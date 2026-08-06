@@ -16,6 +16,7 @@ export function registerDeleteDashboard({
   registerTool(
     'clickstack_delete_dashboard',
     {
+      permission: 'dashboards:manage',
       title: 'Delete Dashboard',
       description:
         'Permanently delete a dashboard by ID. Also removes any alerts attached to its tiles. ' +

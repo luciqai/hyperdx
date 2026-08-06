@@ -18,6 +18,7 @@ export function registerGetDashboard({
   registerTool(
     'clickstack_get_dashboard',
     {
+      permission: 'dashboards:read',
       title: 'Get Dashboard(s)',
       description:
         'Without an ID: list all dashboards (returns IDs, names, tags). ' +

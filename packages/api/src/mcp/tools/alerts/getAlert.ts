@@ -53,6 +53,7 @@ export function registerGetAlert({
   registerTool(
     'clickstack_get_alert',
     {
+      permission: 'alerts:read',
       title: 'Get Alert(s)',
       description:
         'Without an ID: list all alerts as a high-level summary ' +

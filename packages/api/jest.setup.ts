@@ -10,6 +10,17 @@ jest.retryTimes(
   { logErrorsBeforeRetry: true },
 );
 
+// Rate limiter counters are process-global and keyed by origin, so every test
+// in a file shares one bucket. The pre-auth limiters meter failed requests, and
+// integration suites assert dozens of 4xx responses, so without this a suite
+// exhausts a production-realistic failed-attempt budget partway through and
+// unrelated cases start seeing 429. Reset between tests, alongside the DBs.
+afterEach(async () => {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { resetRateLimitersForTests } = require('@/utils/rateLimiter');
+  await resetRateLimitersForTests();
+});
+
 // http-proxy-middleware v4 is ESM-only and Jest's CJS module loader cannot
 // load ESM packages. Auto-mock since no test exercises the proxy directly.
 jest.mock('http-proxy-middleware', () => ({

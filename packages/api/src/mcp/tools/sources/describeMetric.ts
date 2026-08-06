@@ -701,6 +701,7 @@ export function registerDescribeMetric({
   registerTool(
     'clickstack_describe_metric',
     {
+      permission: 'sources:read',
       title: 'Describe Metric',
       description:
         'DRILL-DOWN: Use after clickstack_list_metrics (or after a clickstack_describe_source ' +

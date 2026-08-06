@@ -77,6 +77,7 @@ export function registerTimeseries({ context, registerTool }: ToolRegistrar) {
   registerTool(
     'clickstack_timeseries',
     {
+      permission: 'sources:read',
       title: 'Time-Series Chart',
       description:
         'Plot metrics over time as a line or stacked bar chart. ' +

@@ -15,6 +15,7 @@ export function registerDeleteWebhook({
   registerTool(
     'clickstack_delete_webhook',
     {
+      permission: 'webhooks:manage',
       title: 'Delete Webhook',
       description:
         'Permanently delete a webhook by ID. Blocked while any alert still ' +

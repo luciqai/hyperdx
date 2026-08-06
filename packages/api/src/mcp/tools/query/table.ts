@@ -203,6 +203,7 @@ export function registerTable({ context, registerTool }: ToolRegistrar) {
   registerTool(
     'clickstack_table',
     {
+      permission: 'sources:read',
       title: 'Aggregation Table',
       description:
         'Compute aggregated metrics as a table, single number, pie chart, or bar chart. ' +

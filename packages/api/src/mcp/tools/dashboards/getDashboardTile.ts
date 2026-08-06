@@ -15,6 +15,7 @@ export function registerGetDashboardTile({
   registerTool(
     'clickstack_get_dashboard_tile',
     {
+      permission: 'dashboards:read',
       title: 'Get a Single Dashboard Tile',
       description:
         'Retrieve a single tile from a dashboard by tileId. ' +

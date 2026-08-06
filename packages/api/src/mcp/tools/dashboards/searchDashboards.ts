@@ -20,6 +20,7 @@ export function registerSearchDashboards({
   registerTool(
     'clickstack_search_dashboards',
     {
+      permission: 'dashboards:read',
       title: 'Search Dashboards',
       description:
         'Search dashboards by name and/or tags. Returns matching dashboards with ' +

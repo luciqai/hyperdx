@@ -9,6 +9,7 @@ import {
   getServer,
 } from '@/fixtures';
 import { createTestClient } from '@/mcp/__tests__/mcpTestUtils';
+import { MCP_TEST_ADMIN_ROLE } from '@/mcp/__tests__/mcpTestUtils';
 import { McpContext } from '@/mcp/tools/types';
 import Connection from '@/models/connection';
 import { Source } from '@/models/source';
@@ -63,6 +64,7 @@ export function setupDashboardTests() {
     const mcpContext: McpContext = {
       teamId: ctx.team._id.toString(),
       userId: ctx.user._id.toString(),
+      role: MCP_TEST_ADMIN_ROLE,
     };
     ctx.client = await createTestClient(mcpContext);
   });

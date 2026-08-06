@@ -14,6 +14,7 @@ export function registerDeleteSource({
   registerTool(
     'clickstack_delete_source',
     {
+      permission: 'sources:manage',
       title: 'Delete Source',
       description:
         'Permanently delete a data source by ID. Other sources may reference ' +

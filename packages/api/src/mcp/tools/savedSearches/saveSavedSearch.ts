@@ -24,6 +24,7 @@ export function registerSaveSavedSearch({
   registerTool(
     'clickstack_save_saved_search',
     {
+      permission: 'savedSearches:manage',
       title: 'Create or Update Saved Search',
       description:
         'Create a new saved search (omit id) or update an existing one (provide id). ' +

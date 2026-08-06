@@ -61,6 +61,7 @@ export function registerSearch({ context, registerTool }: ToolRegistrar) {
   registerTool(
     'clickstack_search',
     {
+      permission: 'sources:read',
       title: 'Search Events',
       description:
         'Browse individual log/event/trace rows. ' +
