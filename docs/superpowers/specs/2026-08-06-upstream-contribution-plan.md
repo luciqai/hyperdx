@@ -259,10 +259,15 @@ job:
 
 ## 7. Build status and verification
 
-The stack exists as seven local branches, built from the final state of `rbac`
-so that all remediation is folded into the commit that introduced the code:
+Ten local branches exist: three standalone wedge fixes off `main`, and the
+seven-slice stack built from the final state of `rbac` so that all remediation
+is folded into the commit that introduced the code.
 
 ```
+claude/fix-cross-tenant-invitation-delete   ← main   (wedge, standalone)
+claude/fix-expression-guard-bypass          ← main   (wedge, standalone)
+claude/fix-auth-rate-limit-bucketing        ← main   (wedge, standalone)
+
 claude/rbac-1-permission-types        ← main
 claude/rbac-2-role-model              ← 1
 claude/rbac-3-enforcement-middleware  ← 2
@@ -272,20 +277,37 @@ claude/rbac-6-bearer-path             ← 5
 claude/rbac-7-coverage-assertion      ← 6
 ```
 
-**Nothing is pushed.** All seven are local-only pending the disclosure decision
-in §8.
+**Nothing is pushed.** All ten are local-only pending the disclosure decision in
+§8.
 
-### Verification results
+### Wedge results
+
+Each wedge branches from `main` independently, so they can be opened in any
+order, and each carries its own changeset. RBAC content was stripped out by hand
+— in every case the coupling was one import plus one `requirePermission` line,
+except `mcp/app.ts`, which also carried the `role` field on `McpContext`.
+
+| Wedge                          | files | +/−      | tsc  | lint | unit api |
+| ------------------------------ | ----- | -------- | ---- | ---- | -------- |
+| cross-tenant invitation delete | 3     | +69/−1   | pass | pass | 601      |
+| expression guard bypass        | 4     | +392/−79 | pass | pass | 618      |
+| auth rate-limit bucketing      | 7     | +476/−86 | pass | pass | 615      |
+
+The cross-tenant regression test was lifted out of `teamRbac.int.test.ts` into a
+standalone `invitationTeamScope.int.test.ts`, since the original file depends on
+roles.
+
+### Stack results
 
 | Slice                  | files | +/−        | tsc api | tsc app | unit cu | unit api | unit app |
 | ---------------------- | ----- | ---------- | ------- | ------- | ------- | -------- | -------- |
-| 1 · permission types   | 3     | +255/−5    | pass    | pass    | 1568    | 601      | 2456     |
-| 2 · role model         | 6     | +505       | pass    | pass    | 1568    | 601      | 2456     |
-| 3 · middleware         | 4     | +435       | pass    | pass    | 1568    | 615      | 2456     |
-| 4 · route annotations  | 36    | +2606/−297 | pass    | pass    | 1568    | 621      | 2456     |
-| 5 · Team Settings UI   | 24    | +1697/−274 | pass    | pass    | 1568    | 621      | 2484     |
-| 6 · Bearer path        | 67    | +2378/−342 | pass    | pass    | 1568    | 691      | 2484     |
-| 7 · coverage assertion | 5     | +249/−2    | pass    | pass    | 1568    | 694      | 2484     |
+| 1 · permission types   | 4     | +263/−5    | pass    | pass    | 1568    | 601      | 2456     |
+| 2 · role model         | 7     | +515       | pass    | pass    | 1568    | 601      | 2456     |
+| 3 · middleware         | 5     | +446       | pass    | pass    | 1568    | 615      | 2456     |
+| 4 · route annotations  | 37    | +2622/−297 | pass    | pass    | 1568    | 621      | 2456     |
+| 5 · Team Settings UI   | 25    | +1709/−274 | pass    | pass    | 1568    | 621      | 2484     |
+| 6 · Bearer path        | 68    | +2393/−342 | pass    | pass    | 1568    | 691      | 2484     |
+| 7 · coverage assertion | 6     | +258/−2    | pass    | pass    | 1568    | 694      | 2484     |
 
 **Union check:** `git diff claude/rbac-7-coverage-assertion rbac -- packages/`
 is empty. The seven slices reconstruct `rbac` byte-for-byte across every
@@ -317,16 +339,19 @@ independently-mergeable pieces. Both are fixed in the branches above.
 
 ### Carried over, still to do
 
-- **Changesets.** All three RBAC changesets are intentionally absent from the
-  stack. Each slice needs its own, written against what that slice alone
-  changes.
-- **The `.gitignore` hunk** (`specs/` → `/specs/`) is not carried by any slice.
+- **Integration and E2E tests have not run per branch.** Both need Docker.
+  `rateLimit.int.test.ts` and `invitationTeamScope.int.test.ts` ship with their
+  wedges but have only been typechecked, not executed. Run `make dev-int` on
+  each branch before opening anything.
+- **The `.gitignore` hunk** (`specs/` → `/specs/`) is not carried by any branch.
   It exists to stop the root-level Playwright ignore pattern from swallowing
   `docs/superpowers/specs/`. Fork-local; drop it or send it separately.
-- **The three wedge PRs in §3 are not built.** They need hand-splitting from the
-  RBAC content in the same files (`search.ts` in particular mixes the guard fix
-  with Bearer-path gating), and they are blocked on the disclosure decision
-  regardless.
+- **PR descriptions are not written.** §6 lists what each must carry. The
+  planning docs stay out of the diff, so the description does their job.
+- **Slice 4's changeset claims the invitation fixes.** If the cross-tenant wedge
+  merges upstream first, drop that paragraph from
+  `.changeset/rbac-4-route-annotations.md` and rebuild the stack — otherwise the
+  release notes describe the same fix twice.
 
 ### A caution about the local build
 
