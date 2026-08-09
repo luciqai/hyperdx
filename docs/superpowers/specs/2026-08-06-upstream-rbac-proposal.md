@@ -97,9 +97,9 @@ Three roles seed on team creation:
 | savedSearches | manage | manage | read     |
 | sources       | manage | read   | read     |
 | alerts        | manage | manage | read     |
-| webhooks      | manage | read   | read     |
+| webhooks      | manage | read   | none     |
 | connections   | manage | none   | none     |
-| users         | read   | read   | read     |
+| users         | read   | read   | none     |
 | team          | manage | read   | read     |
 
 Admins can author custom roles from a permission matrix in Team Settings. Every
