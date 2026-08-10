@@ -1,7 +1,4 @@
-import type {
-  GoogleAuthContext,
-  GoogleProfileInput,
-} from '@/utils/googleAuth';
+import type { GoogleAuthContext, GoogleProfileInput } from '@/utils/googleAuth';
 import {
   emailDomain,
   evaluateGoogleProfile,
@@ -13,7 +10,9 @@ type TestTeam = { _id: string };
 
 const TEAM: TestTeam = { _id: 'team-1' };
 
-const profile = (over: Partial<GoogleProfileInput> = {}): GoogleProfileInput => ({
+const profile = (
+  over: Partial<GoogleProfileInput> = {},
+): GoogleProfileInput => ({
   googleId: 'sub-1',
   email: 'ada@luciq.ai',
   emailVerified: true,
@@ -62,13 +61,17 @@ describe('evaluateGoogleProfile', () => {
   });
 
   it('rejects a profile with no email address', () => {
-    expect(
-      evaluateGoogleProfile(profile({ email: undefined }), ctx()),
-    ).toEqual({ action: 'reject', code: 'googleEmailUnverified' });
+    expect(evaluateGoogleProfile(profile({ email: undefined }), ctx())).toEqual(
+      { action: 'reject', code: 'googleEmailUnverified' },
+    );
   });
 
   it('logs in a user matched by googleId without re-stamping', () => {
-    const user: TestUser = { _id: 'u1', email: 'ada@luciq.ai', googleId: 'sub-1' };
+    const user: TestUser = {
+      _id: 'u1',
+      email: 'ada@luciq.ai',
+      googleId: 'sub-1',
+    };
     expect(
       evaluateGoogleProfile(
         profile(),
@@ -92,23 +95,37 @@ describe('evaluateGoogleProfile', () => {
     expect(
       evaluateGoogleProfile(
         profile({ email: 'bob@gmail.com' }),
-        ctx({ allowedDomains: ['luciq.ai'], existingUser: { user, matchedBy: 'email' } }),
+        ctx({
+          allowedDomains: ['luciq.ai'],
+          existingUser: { user, matchedBy: 'email' },
+        }),
       ),
     ).toEqual({ action: 'login', user, stampGoogleId: true });
   });
 
   it('logs in an existing user even when the allowlist is empty', () => {
-    const user: TestUser = { _id: 'u1', email: 'ada@luciq.ai', googleId: 'sub-1' };
+    const user: TestUser = {
+      _id: 'u1',
+      email: 'ada@luciq.ai',
+      googleId: 'sub-1',
+    };
     expect(
       evaluateGoogleProfile(
         profile(),
-        ctx({ allowedDomains: [], existingUser: { user, matchedBy: 'googleId' } }),
+        ctx({
+          allowedDomains: [],
+          existingUser: { user, matchedBy: 'googleId' },
+        }),
       ),
     ).toEqual({ action: 'login', user, stampGoogleId: false });
   });
 
   it('rejects when the email matches a user linked to a different Google account', () => {
-    const user: TestUser = { _id: 'u1', email: 'ada@luciq.ai', googleId: 'sub-OLD' };
+    const user: TestUser = {
+      _id: 'u1',
+      email: 'ada@luciq.ai',
+      googleId: 'sub-OLD',
+    };
     expect(
       evaluateGoogleProfile(
         profile({ googleId: 'sub-NEW' }),
@@ -144,9 +161,10 @@ describe('evaluateGoogleProfile', () => {
   });
 
   it('rejects provisioning when there is no sole team', () => {
-    expect(
-      evaluateGoogleProfile(profile(), ctx({ soleTeam: null })),
-    ).toEqual({ action: 'reject', code: 'googleNoTeam' });
+    expect(evaluateGoogleProfile(profile(), ctx({ soleTeam: null }))).toEqual({
+      action: 'reject',
+      code: 'googleNoTeam',
+    });
   });
 
   it('checks the domain before the team, so a stranger never learns the team state', () => {
