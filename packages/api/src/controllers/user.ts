@@ -21,7 +21,12 @@ export function findUserByGoogleId(googleId: string) {
 }
 
 export function findUsersByTeam(team: string | ObjectId) {
-  return User.find({ team }).sort({ createdAt: 1 });
+  // `+salt` re-selects the passport-local-mongoose salt field, which the
+  // plugin marks `select: false` by default. The `hasPasswordAuth` virtual
+  // reads `this.salt`, so without this projection every user in the result
+  // would report `hasPasswordAuth: false` regardless of whether they
+  // actually have a password. Do not remove this "unused" projection.
+  return User.find({ team }).select('+salt').sort({ createdAt: 1 });
 }
 
 export async function deleteTeamMember(

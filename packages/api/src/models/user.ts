@@ -41,6 +41,10 @@ const UserSchema = new Schema(
   },
 );
 
+// Depends on passport-local-mongoose's default `saltField` ('salt') and on
+// callers `.select('+salt')`-ing it, since the plugin marks the field
+// `select: false`. If the plugin config or a query's projection changes,
+// `this.salt` silently becomes `undefined` and this virtual goes stale-false.
 UserSchema.virtual('hasPasswordAuth').get(function (this: { salt?: string }) {
   return this.salt != null;
 });
