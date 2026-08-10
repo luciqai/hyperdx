@@ -6,6 +6,7 @@ import { HTTPError } from 'ky';
 import { SubmitHandler, useForm, useWatch } from 'react-hook-form';
 import {
   Button,
+  Divider,
   Notification,
   Paper,
   PasswordInput,
@@ -14,6 +15,7 @@ import {
 } from '@mantine/core';
 import { IconAt, IconLock } from '@tabler/icons-react';
 
+import GoogleSignInButton from './components/GoogleSignInButton';
 import { useBrandDisplayName } from './theme/ThemeProvider';
 import api from './api';
 import * as config from './config';
@@ -25,6 +27,25 @@ type FormData = {
   password: string;
   confirmPassword: string;
 };
+
+const AUTH_ERROR_MESSAGES: Record<string, string> = {
+  missing: 'Please provide a valid email and password',
+  invalid: 'Email or password is invalid',
+  authFail: 'Failed to login with email and password, please try again.',
+  passwordAuthNotAllowed:
+    'Password authentication is not allowed by your team admin.',
+  teamAlreadyExists: 'Team already exists, please login instead.',
+  googleEmailUnverified:
+    'Your Google email address is not verified. Verify it with Google and try again.',
+  googleDomainNotAllowed:
+    'This Google account is not permitted to sign in. Contact your admin.',
+  googleNoTeam: 'No team has been set up yet. Register with a password first.',
+  googleAccountMismatch:
+    'This email is already linked to a different Google account. Contact your admin.',
+  googleAuthFailed: 'Google sign-in failed, please try again.',
+};
+
+const DEFAULT_AUTH_ERROR = 'Unknown error occurred, please try again later.';
 
 export default function AuthPage({ action }: { action: 'register' | 'login' }) {
   const brandName = useBrandDisplayName();
@@ -53,6 +74,8 @@ export default function AuthPage({ action }: { action: 'register' | 'login' }) {
   const { err, msg } = router.query;
 
   const { data: installation } = api.useInstallation();
+  const isGoogleAuthEnabled =
+    installation?.authProviders?.includes('google') === true;
   const registerPassword = api.useRegisterPassword();
 
   const verificationSent = msg === 'verify';
@@ -214,6 +237,12 @@ export default function AuthPage({ action }: { action: 'register' | 'login' }) {
                         ? 'Register'
                         : 'Login'}
                   </Button>
+                  {isGoogleAuthEnabled && (
+                    <>
+                      <Divider label="or" labelPosition="center" />
+                      <GoogleSignInButton />
+                    </>
+                  )}
                 </Stack>
               </Paper>
 
@@ -224,17 +253,7 @@ export default function AuthPage({ action }: { action: 'register' | 'login' }) {
                   color="red"
                   data-test-id="auth-error-msg"
                 >
-                  {err === 'missing'
-                    ? 'Please provide a valid email and password'
-                    : err === 'invalid'
-                      ? 'Email or password is invalid'
-                      : err === 'authFail'
-                        ? 'Failed to login with email and password, please try again.'
-                        : err === 'passwordAuthNotAllowed'
-                          ? 'Password authentication is not allowed by your team admin.'
-                          : err === 'teamAlreadyExists'
-                            ? 'Team already exists, please login instead.'
-                            : 'Unknown error occurred, please try again later.'}
+                  {AUTH_ERROR_MESSAGES[String(err)] ?? DEFAULT_AUTH_ERROR}
                 </Notification>
               )}
 
