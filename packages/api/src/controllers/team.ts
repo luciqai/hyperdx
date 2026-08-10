@@ -61,6 +61,18 @@ export function getAllTeams(fields?: string[]) {
   return Team.find({}, fields);
 }
 
+/**
+ * The single Team when the instance has exactly one, otherwise null.
+ *
+ * Google SSO only auto-provisions into an unambiguous team. Zero teams means a
+ * fresh install (register with a password first); more than one is ambiguous, so
+ * we refuse rather than guess. `limit(2)` is enough to tell those cases apart.
+ */
+export async function getSoleTeam() {
+  const teams = await Team.find({}).limit(2);
+  return teams.length === 1 ? teams[0] : null;
+}
+
 export function getTeam<const F extends readonly (keyof ITeam)[]>(
   id: string | ObjectId,
   fields: F,

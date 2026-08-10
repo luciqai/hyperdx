@@ -16,6 +16,10 @@ export function findUserByEmail(email: string) {
   return User.findOne({ email: email.toLowerCase() });
 }
 
+export function findUserByGoogleId(googleId: string) {
+  return User.findOne({ googleId });
+}
+
 export function findUsersByTeam(team: string | ObjectId) {
   return User.find({ team }).sort({ createdAt: 1 });
 }

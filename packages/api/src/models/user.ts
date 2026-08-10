@@ -10,6 +10,7 @@ export interface IUser {
   accessKey: string;
   createdAt: Date;
   email: string;
+  googleId?: string;
   name: string;
   team: ObjectId;
 }
@@ -22,6 +23,10 @@ const UserSchema = new Schema(
     email: {
       type: String,
       required: true,
+    },
+    googleId: {
+      type: String,
+      required: false,
     },
     team: { type: mongoose.Schema.Types.ObjectId, ref: 'Team' },
     accessKey: {
@@ -36,8 +41,8 @@ const UserSchema = new Schema(
   },
 );
 
-UserSchema.virtual('hasPasswordAuth').get(function (this: IUser) {
-  return true;
+UserSchema.virtual('hasPasswordAuth').get(function (this: { salt?: string }) {
+  return this.salt != null;
 });
 
 UserSchema.plugin(passportLocalMongoose, {
@@ -48,5 +53,6 @@ UserSchema.plugin(passportLocalMongoose, {
 
 UserSchema.index({ email: 1 }, { unique: true });
 UserSchema.index({ accessKey: 1 }, { unique: true });
+UserSchema.index({ googleId: 1 }, { unique: true, sparse: true });
 
 export default mongoose.model<IUser>('User', UserSchema);
