@@ -49,33 +49,51 @@ export function redirectToDashboard(req: Request, res: Response) {
   }
 }
 
-export function handleAuthError(
-  err: any,
-  req: Request,
-  res: Response,
-  next: NextFunction,
-) {
-  logger.debug({ authErr: serializeError(err) }, 'Auth error');
-  if (res.headersSent) {
-    return next(err);
-  }
+/** Reject codes emitted by `evaluateGoogleProfile`, passed through verbatim. */
+const GOOGLE_REJECT_CODES = new Set([
+  'googleEmailUnverified',
+  'googleDomainNotAllowed',
+  'googleNoTeam',
+  'googleAccountMismatch',
+]);
 
-  // Get the latest auth error message
-  const lastMessage = req.session.messages?.at(-1);
-  logger.debug(`Auth error last message: ${lastMessage}`);
+export function makeAuthErrorHandler(fallbackErrorCode: string) {
+  return function authErrorHandler(
+    err: any,
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ) {
+    logger.debug({ authErr: serializeError(err) }, 'Auth error');
+    if (res.headersSent) {
+      return next(err);
+    }
 
-  const returnErr =
-    lastMessage === 'Password or username is incorrect'
-      ? 'authFail'
-      : lastMessage ===
-          'Authentication method password is not allowed by your team admin.'
-        ? 'passwordAuthNotAllowed'
-        : 'unknown';
+    // Get the latest auth error message
+    const lastMessage = req.session.messages?.at(-1);
+    logger.debug(`Auth error last message: ${lastMessage}`);
 
-  // 303 forces GET on the redirected request even when the original request
-  // was a POST (e.g. /login/password failure path).
-  res.redirect(303, `${config.FRONTEND_REDIRECT_BASE}/login?err=${returnErr}`);
+    const returnErr =
+      lastMessage === 'Password or username is incorrect'
+        ? 'authFail'
+        : lastMessage ===
+            'Authentication method password is not allowed by your team admin.'
+          ? 'passwordAuthNotAllowed'
+          : lastMessage != null && GOOGLE_REJECT_CODES.has(lastMessage)
+            ? lastMessage
+            : fallbackErrorCode;
+
+    // 303 forces GET on the redirected request even when the original request
+    // was a POST (e.g. /login/password failure path).
+    res.redirect(
+      303,
+      `${config.FRONTEND_REDIRECT_BASE}/login?err=${returnErr}`,
+    );
+  };
 }
+
+export const handleAuthError = makeAuthErrorHandler('unknown');
+export const handleGoogleAuthError = makeAuthErrorHandler('googleAuthFailed');
 
 export async function validateUserAccessKey(
   req: Request,

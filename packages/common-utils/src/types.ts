@@ -2271,6 +2271,8 @@ export type RotateApiKeyApiResponse = z.infer<
 // Installation
 export const InstallationApiResponseSchema = z.object({
   isTeamExisting: z.boolean(),
+  // Optional so a newer app deployed against an older API still validates.
+  authProviders: z.array(z.enum(['password', 'google'])).optional(),
 });
 
 export type InstallationApiResponse = z.infer<

@@ -10,7 +10,11 @@ import {
   silenceAlertByToken,
 } from '@/controllers/alerts';
 import { createTeam, isTeamExisting } from '@/controllers/team';
-import { handleAuthError, redirectToDashboard } from '@/middleware/auth';
+import {
+  handleAuthError,
+  handleGoogleAuthError,
+  redirectToDashboard,
+} from '@/middleware/auth';
 import TeamInvite from '@/models/teamInvite';
 import User from '@/models/user'; // TODO -> do not import model directly
 import { setupTeamDefaults } from '@/setupDefaults';
@@ -46,6 +50,9 @@ router.get('/installation', async (_, res: InstallationEspRes, next) => {
     const _isTeamExisting = await isTeamExisting();
     return res.json({
       isTeamExisting: _isTeamExisting,
+      authProviders: config.IS_GOOGLE_AUTH_ENABLED
+        ? ['password', 'google']
+        : ['password'],
     });
   } catch (e) {
     next(e);
@@ -61,6 +68,25 @@ router.post(
   redirectToDashboard,
   handleAuthError,
 );
+
+// Google SSO. Registered only when credentials are configured, so these paths
+// 404 on an unconfigured deployment.
+if (config.IS_GOOGLE_AUTH_ENABLED) {
+  router.get(
+    '/auth/google',
+    passport.authenticate('google', { scope: ['openid', 'email', 'profile'] }),
+  );
+
+  router.get(
+    '/auth/google/callback',
+    passport.authenticate('google', {
+      failWithError: true,
+      failureMessage: true,
+    }),
+    redirectToDashboard,
+    handleGoogleAuthError,
+  );
+}
 
 router.post(
   '/register/password',
