@@ -1,3 +1,5 @@
+import { parseAllowedDomains } from '@/utils/googleAuth';
+
 const env = process.env;
 
 // DEFAULTS
@@ -72,3 +74,16 @@ export const AI_REQUEST_HEADERS = env.AI_REQUEST_HEADERS as string;
 
 // Legacy Anthropic-specific configuration (backward compatibility)
 export const ANTHROPIC_API_KEY = env.ANTHROPIC_API_KEY as string;
+
+// Google SSO (optional). Disabled entirely unless both credentials are set, so
+// an unconfigured deployment behaves exactly as it did before this feature.
+export const GOOGLE_CLIENT_ID = env.GOOGLE_CLIENT_ID ?? '';
+export const GOOGLE_CLIENT_SECRET = env.GOOGLE_CLIENT_SECRET ?? '';
+/** Empty means no auto-provisioning at all — existing users can still sign in. */
+export const GOOGLE_ALLOWED_DOMAINS = parseAllowedDomains(
+  env.GOOGLE_ALLOWED_DOMAINS,
+);
+export const GOOGLE_REDIRECT_URI =
+  env.GOOGLE_REDIRECT_URI || `${FRONTEND_URL}/api/auth/google/callback`;
+export const IS_GOOGLE_AUTH_ENABLED =
+  Boolean(GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET) && !IS_LOCAL_APP_MODE;
