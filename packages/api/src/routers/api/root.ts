@@ -75,6 +75,7 @@ if (config.IS_GOOGLE_AUTH_ENABLED) {
   router.get(
     '/auth/google',
     passport.authenticate('google', { scope: ['openid', 'email', 'profile'] }),
+    handleGoogleAuthError,
   );
 
   router.get(

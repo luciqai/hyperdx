@@ -72,6 +72,11 @@ export default function AuthPage({ action }: { action: 'register' | 'login' }) {
   });
 
   const { err, msg } = router.query;
+  const resolvedAuthError = AUTH_ERROR_MESSAGES[String(err)];
+  const authErrorMessage =
+    typeof resolvedAuthError === 'string'
+      ? resolvedAuthError
+      : DEFAULT_AUTH_ERROR;
 
   const { data: installation } = api.useInstallation();
   const isGoogleAuthEnabled =
@@ -253,7 +258,7 @@ export default function AuthPage({ action }: { action: 'register' | 'login' }) {
                   color="red"
                   data-test-id="auth-error-msg"
                 >
-                  {AUTH_ERROR_MESSAGES[String(err)] ?? DEFAULT_AUTH_ERROR}
+                  {authErrorMessage}
                 </Notification>
               )}
 

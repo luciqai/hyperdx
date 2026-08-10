@@ -43,7 +43,7 @@ export function redirectToDashboard(req: Request, res: Response) {
   } else {
     logger.error(
       { userId: req?.user?._id },
-      'Password login for user failed, user or team not found',
+      'Login for user failed, user or team not found',
     );
     res.redirect(303, `${config.FRONTEND_REDIRECT_BASE}/login?err=unknown`);
   }
@@ -57,7 +57,27 @@ const GOOGLE_REJECT_CODES = new Set([
   'googleAccountMismatch',
 ]);
 
-export function makeAuthErrorHandler(fallbackErrorCode: string) {
+/**
+ * Local-strategy failure messages (from passport-local-mongoose /
+ * `failureMessage: true`), translated to their `/login?err=` codes. A
+ * translation, not a passthrough, so it must stay scoped to
+ * `handleAuthError` below — otherwise a stale message left in the session by
+ * one handler could be misattributed to a later, unrelated failure handled
+ * by the other (see `messageCodes`/`passThroughCodes` params).
+ */
+const PASSWORD_ERROR_CODES: ReadonlyMap<string, string> = new Map([
+  ['Password or username is incorrect', 'authFail'],
+  [
+    'Authentication method password is not allowed by your team admin.',
+    'passwordAuthNotAllowed',
+  ],
+]);
+
+export function makeAuthErrorHandler(
+  fallbackErrorCode: string,
+  passThroughCodes: ReadonlySet<string> = new Set(),
+  messageCodes: ReadonlyMap<string, string> = new Map(),
+) {
   return function authErrorHandler(
     err: any,
     req: Request,
@@ -69,19 +89,27 @@ export function makeAuthErrorHandler(fallbackErrorCode: string) {
       return next(err);
     }
 
-    // Get the latest auth error message
+    // Get the latest auth error message, then clear the list. Passport only
+    // ever appends here, never removes, so without clearing, a stale message
+    // from an earlier, unrelated attempt (e.g. a mistyped password) would be
+    // misattributed to a later attempt that fails silently (e.g. declining
+    // Google's consent screen appends nothing to this array). Clearing also
+    // caps the array's otherwise-unbounded growth across a session.
     const lastMessage = req.session.messages?.at(-1);
+    req.session.messages = [];
     logger.debug(`Auth error last message: ${lastMessage}`);
 
+    // `messageCodes` and `passThroughCodes` are both allowlists scoped per
+    // handler: only messages/codes explicitly known to belong to this
+    // handler's flow may produce anything other than the fallback.
+    // Reflecting `lastMessage` into the redirect without this check would let
+    // attacker-influenced session content flow into the `Location` header.
     const returnErr =
-      lastMessage === 'Password or username is incorrect'
-        ? 'authFail'
-        : lastMessage ===
-            'Authentication method password is not allowed by your team admin.'
-          ? 'passwordAuthNotAllowed'
-          : lastMessage != null && GOOGLE_REJECT_CODES.has(lastMessage)
-            ? lastMessage
-            : fallbackErrorCode;
+      lastMessage != null && messageCodes.has(lastMessage)
+        ? messageCodes.get(lastMessage)
+        : lastMessage != null && passThroughCodes.has(lastMessage)
+          ? lastMessage
+          : fallbackErrorCode;
 
     // 303 forces GET on the redirected request even when the original request
     // was a POST (e.g. /login/password failure path).
@@ -92,8 +120,15 @@ export function makeAuthErrorHandler(fallbackErrorCode: string) {
   };
 }
 
-export const handleAuthError = makeAuthErrorHandler('unknown');
-export const handleGoogleAuthError = makeAuthErrorHandler('googleAuthFailed');
+export const handleAuthError = makeAuthErrorHandler(
+  'unknown',
+  undefined,
+  PASSWORD_ERROR_CODES,
+);
+export const handleGoogleAuthError = makeAuthErrorHandler(
+  'googleAuthFailed',
+  GOOGLE_REJECT_CODES,
+);
 
 export async function validateUserAccessKey(
   req: Request,

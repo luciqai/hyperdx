@@ -74,6 +74,14 @@ if (config.IS_GOOGLE_AUTH_ENABLED) {
       },
       async function (_accessToken, _refreshToken, profile, done) {
         try {
+          if (!profile.id) {
+            logger.error(
+              { profile: profile._json },
+              'Google profile missing sub',
+            );
+            return done(null, false, { message: 'googleAuthFailed' });
+          }
+
           const claims = profile._json as {
             email?: string;
             email_verified?: boolean;

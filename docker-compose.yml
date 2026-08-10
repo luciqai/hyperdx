@@ -74,6 +74,11 @@ services:
       # Uncomment the next two lines to enable PromQL (Prometheus-compatible metrics)
       # ENABLE_PROMQL: 'true'
       # NEXT_PUBLIC_ENABLE_PROMQL: 'true'
+      # Google SSO — uncomment and set to enable "Sign in with Google".
+      # GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      # GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      # GOOGLE_ALLOWED_DOMAINS: ${GOOGLE_ALLOWED_DOMAINS:-}
+      # GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-}
       DEFAULT_CONNECTIONS:
         '[{"name":"Local
         ClickHouse","host":"http://ch-server:8123","username":"default","password":""}]'
