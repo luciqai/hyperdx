@@ -130,16 +130,16 @@ export const handleGoogleAuthError = makeAuthErrorHandler(
   GOOGLE_REJECT_CODES,
 );
 
+export function getAccessKeyFromRequest(req: Request): string | undefined {
+  return req.headers.authorization?.split('Bearer ')[1];
+}
+
 export async function validateUserAccessKey(
   req: Request,
   res: Response,
   next: NextFunction,
 ) {
-  const authHeader = req.headers.authorization;
-  if (!authHeader) {
-    return res.sendStatus(401);
-  }
-  const key = authHeader.split('Bearer ')[1];
+  const key = getAccessKeyFromRequest(req);
   if (!key) {
     return res.sendStatus(401);
   }
