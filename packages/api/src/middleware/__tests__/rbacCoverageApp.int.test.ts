@@ -90,4 +90,57 @@ describe('RBAC coverage over the real app', () => {
       assertRbacCoverage(flagged, { exemptMounts: ['/mcp'] }),
     ).not.toThrow();
   });
+
+  it('covers the Google SSO routes, which only mount when configured', () => {
+    // Same blind spot as the swagger case above, and a worse one:
+    // /auth/google and its callback live behind `IS_GOOGLE_AUTH_ENABLED`,
+    // which is false in the test env. Without this the routes are absent
+    // here, the suite passes, and a deployment that actually configures
+    // Google SSO is the first to discover a missing declaration — by
+    // failing to boot.
+    jest.isolateModules(() => {
+      jest.doMock('@/config', () => ({
+        ...jest.requireActual('@/config'),
+        IS_GOOGLE_AUTH_ENABLED: true,
+        GOOGLE_CLIENT_ID: 'test-client-id',
+        GOOGLE_CLIENT_SECRET: 'test-client-secret',
+        GOOGLE_REDIRECT_URI: 'http://localhost/api/auth/google/callback',
+        GOOGLE_ALLOWED_DOMAINS: ['example.com'],
+      }));
+
+      // Both the router and the assertion must come from THIS module
+      // registry. `RBAC_DECLARATION` is a plain `Symbol(...)`, so an isolated
+      // registry mints a fresh one — the outer `assertRbacCoverage` would
+      // read a different symbol than the one `root.ts` tagged with here and
+      // report every route undeclared.
+      const rootRouter = require('@/routers/api/root').default;
+      const { assertRbacCoverage: assertIsolated } =
+        require('@/middleware/rbacCoverage') as typeof import('@/middleware/rbacCoverage');
+
+      const withGoogle = express();
+      withGoogle.use(rootRouter);
+
+      const paths: string[] = [];
+      const walk = (stack: any[]) => {
+        for (const layer of stack) {
+          if (layer.route) paths.push(layer.route.path);
+          else if (layer.handle?.stack) walk(layer.handle.stack);
+        }
+      };
+      walk(
+        (withGoogle as any)._router?.stack ??
+          (withGoogle as any).router?.stack ??
+          [],
+      );
+
+      // Guard against a vacuous pass: if the config mock failed to take, the
+      // routes would be absent and the assertion below would prove nothing.
+      expect(paths).toContain('/auth/google');
+      expect(paths).toContain('/auth/google/callback');
+
+      expect(() =>
+        assertIsolated(withGoogle, { exemptMounts: [] }),
+      ).not.toThrow();
+    });
+  });
 });
