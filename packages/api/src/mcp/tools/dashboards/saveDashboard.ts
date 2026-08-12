@@ -47,6 +47,7 @@ export function registerSaveDashboard({
     {
       permission: 'dashboards:manage',
       title: 'Create or Update Dashboard',
+      annotations: { destructiveHint: true },
       description:
         'Create a new dashboard (omit id) or update an existing one (provide id). ' +
         'Call clickstack_list_sources first to obtain sourceId and connectionId values. ' +

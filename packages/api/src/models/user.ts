@@ -10,6 +10,7 @@ export interface IUser {
   accessKey: string;
   createdAt: Date;
   email: string;
+  googleId?: string;
   name: string;
   team: ObjectId;
   role?: ObjectId;
@@ -23,6 +24,10 @@ const UserSchema = new Schema(
     email: {
       type: String,
       required: true,
+    },
+    googleId: {
+      type: String,
+      required: false,
     },
     team: { type: mongoose.Schema.Types.ObjectId, ref: 'Team' },
     role: { type: mongoose.Schema.Types.ObjectId, ref: 'Role' },
@@ -38,8 +43,12 @@ const UserSchema = new Schema(
   },
 );
 
-UserSchema.virtual('hasPasswordAuth').get(function (this: IUser) {
-  return true;
+// Depends on passport-local-mongoose's default `saltField` ('salt') and on
+// callers `.select('+salt')`-ing it, since the plugin marks the field
+// `select: false`. If the plugin config or a query's projection changes,
+// `this.salt` silently becomes `undefined` and this virtual goes stale-false.
+UserSchema.virtual('hasPasswordAuth').get(function (this: { salt?: string }) {
+  return this.salt != null;
 });
 
 UserSchema.plugin(passportLocalMongoose, {
@@ -50,5 +59,6 @@ UserSchema.plugin(passportLocalMongoose, {
 
 UserSchema.index({ email: 1 }, { unique: true });
 UserSchema.index({ accessKey: 1 }, { unique: true });
+UserSchema.index({ googleId: 1 }, { unique: true, sparse: true });
 
 export default mongoose.model<IUser>('User', UserSchema);

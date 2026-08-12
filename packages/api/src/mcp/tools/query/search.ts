@@ -63,6 +63,7 @@ export function registerSearch({ context, registerTool }: ToolRegistrar) {
     {
       permission: 'sources:read',
       title: 'Search Events',
+      annotations: { readOnlyHint: true },
       description:
         'Browse individual log/event/trace rows. ' +
         'Use this when you need to see raw events, investigate specific log lines, ' +

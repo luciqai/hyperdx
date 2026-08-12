@@ -17,6 +17,7 @@ export function registerGetDashboardTile({
     {
       permission: 'dashboards:read',
       title: 'Get a Single Dashboard Tile',
+      annotations: { readOnlyHint: true },
       description:
         'Retrieve a single tile from a dashboard by tileId. ' +
         'Useful for inspecting one tile without loading the full dashboard. ' +

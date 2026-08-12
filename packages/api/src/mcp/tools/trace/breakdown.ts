@@ -110,6 +110,7 @@ export function registerTraceBreakdown({
     {
       permission: 'sources:read',
       title: 'Top Time-Consuming Operations Across Matching Traces',
+      annotations: { readOnlyHint: true },
       description:
         'Given a parent-span filter and a time window, return the child ' +
         'operations contributing the most cumulative time across all traces ' +

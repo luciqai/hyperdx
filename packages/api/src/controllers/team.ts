@@ -21,6 +21,7 @@ export const LOCAL_APP_TEAM = {
   hookId: uuidv4(),
   apiKey: uuidv4(),
   collectorAuthenticationEnforced: false,
+  isMetricsSeriesTableEnabled: false,
   toJSON() {
     return this;
   },
@@ -59,6 +60,22 @@ export function getAllTeams(fields?: string[]) {
   }
 
   return Team.find({}, fields);
+}
+
+/**
+ * The single Team when the instance has exactly one, otherwise null.
+ *
+ * Google SSO only auto-provisions into an unambiguous team. Zero teams means a
+ * fresh install (register with a password first); more than one is ambiguous, so
+ * we refuse rather than guess. `limit(2)` is enough to tell those cases apart.
+ *
+ * Deliberately does not guard `IS_LOCAL_APP_MODE` like `getAllTeams`/`getTeam`:
+ * Google SSO is disabled in local-app-mode (`IS_GOOGLE_AUTH_ENABLED` is
+ * `false` there), so this function's only caller never runs in that mode.
+ */
+export async function getSoleTeam() {
+  const teams = await Team.find({}).limit(2);
+  return teams.length === 1 ? teams[0] : null;
 }
 
 export function getTeam<const F extends readonly (keyof ITeam)[]>(

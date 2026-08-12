@@ -71,6 +71,7 @@ router.get(
         'apiKey',
         'name',
         'createdAt',
+        'isMetricsSeriesTableEnabled',
       ] as const;
       const team = await getTeam(teamId, fields);
       if (team == null) {
@@ -273,15 +274,15 @@ router.delete(
   async (req, res, next) => {
     try {
       const id = req.params.id;
-      const teamId = req.user?.team;
-      if (teamId == null) {
-        throw new Error(`User ${req.user?._id} not associated with a team`);
-      }
+      // Throws rather than reading `req.user?.team` directly. BSON drops an
+      // undefined value from the filter entirely, so a teamless caller would
+      // turn the scoped delete below back into the unscoped one this guard
+      // exists to prevent — any authenticated user revoking any team's
+      // pending invitation given its id.
+      const { teamId } = getNonNullUserWithTeam(req);
 
-      // Scoped by team: deleting by _id alone let any authenticated user of
-      // any team remove another team's pending invite.
       const deleted = await TeamInvite.findOneAndDelete({ _id: id, teamId });
-      if (!deleted) {
+      if (deleted == null) {
         return res.status(404).json({ message: 'TeamInvite not found' });
       }
 

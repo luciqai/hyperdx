@@ -16,6 +16,7 @@ export function registerDeleteSource({
     {
       permission: 'sources:manage',
       title: 'Delete Source',
+      annotations: { destructiveHint: true },
       description:
         'Permanently delete a data source by ID. Other sources may reference ' +
         'it (e.g. a trace source linked to a log source) — those links are ' +

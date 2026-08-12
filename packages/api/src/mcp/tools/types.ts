@@ -6,6 +6,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type {
   CallToolResult,
   GetPromptResult,
+  ToolAnnotations,
 } from '@modelcontextprotocol/sdk/types.js';
 import type { AnyZodObject, ZodTypeAny } from 'zod';
 
@@ -60,6 +61,12 @@ export type RegisterToolFn = <TSchema extends AnyZodObject>(
     title: string;
     description: string;
     inputSchema: TSchema;
+    /**
+     * Advisory MCP tool annotations (readOnlyHint, destructiveHint, etc.).
+     * These are hints only — clients must not rely on them for safety.
+     * Enforcement lives in `permission` below.
+     */
+    annotations?: ToolAnnotations;
     /**
      * Required. A tool that declares nothing fails to compile, which is the
      * compile-time half of the coverage guarantee; assertMcpCoverage is the

@@ -4,6 +4,7 @@ import mongoose from 'mongoose';
 
 import { getLoggedInAgent, getServer } from '@/fixtures';
 import Alert, { AlertSource, AlertThresholdType } from '@/models/alert';
+import Team from '@/models/team';
 import TeamInvite from '@/models/teamInvite';
 import User from '@/models/user';
 
@@ -33,9 +34,22 @@ describe('team router', () => {
       .toMatchInlineSnapshot(`
       {
         "allowedAuthMethods": [],
+        "isMetricsSeriesTableEnabled": false,
         "name": "fake@deploysentinel.com's Team",
       }
     `);
+  });
+
+  it('GET /team reflects isMetricsSeriesTableEnabled when set', async () => {
+    const { agent, team } = await getLoggedInAgent(server);
+
+    await Team.findByIdAndUpdate(team._id, {
+      isMetricsSeriesTableEnabled: true,
+    });
+
+    const resp = await agent.get('/team').expect(200);
+
+    expect(resp.body.isMetricsSeriesTableEnabled).toBe(true);
   });
 
   it('GET /team/tags - no tags', async () => {
@@ -98,6 +112,13 @@ describe('team router', () => {
     });
     const resp = await agent.get('/team/members').expect(200);
 
+    // `hasPasswordAuth` is computed from whether the user has a password
+    // salt (see the `hasPasswordAuth` virtual on the User model). The
+    // logged-in user registered through `/register/password`, so it has a
+    // salt and reports `true`. `user1`/`user2` are created directly via
+    // `User.create()` above with no password ever set, so they truthfully
+    // have no salt and report `false`.
+    //
     // roleId is a generated ObjectId, so it is stripped alongside _id.
     expect(resp.body.data.map(({ _id, roleId, ...rest }: any) => rest))
       .toMatchInlineSnapshot(`
@@ -111,13 +132,13 @@ describe('team router', () => {
         },
         {
           "email": "user1@example.com",
-          "hasPasswordAuth": true,
+          "hasPasswordAuth": false,
           "isCurrentUser": false,
           "roleName": null,
         },
         {
           "email": "user2@example.com",
-          "hasPasswordAuth": true,
+          "hasPasswordAuth": false,
           "isCurrentUser": false,
           "roleName": null,
         },
@@ -335,6 +356,23 @@ describe('team router', () => {
     const resp2 = await agent.get('/team/invitations').expect(200);
 
     expect(resp2.body.data).toHaveLength(0);
+  });
+
+  // The delete used to be an unscoped findByIdAndDelete, so any authenticated
+  // user could revoke another team's pending invitation given its id.
+  it('DELETE /team/invitation/:teamInviteId will not touch another team', async () => {
+    const { agent } = await getLoggedInAgent(server);
+
+    const otherTeamInvite = await TeamInvite.create({
+      email: 'other_team@example.com',
+      name: 'Other Team Invite',
+      teamId: new ObjectId(),
+      token: 'other_team_token',
+    });
+
+    await agent.delete(`/team/invitation/${otherTeamInvite._id}`).expect(404);
+
+    expect(await TeamInvite.findById(otherTeamInvite._id)).not.toBeNull();
   });
 
   it('PATCH /team/apiKey', async () => {

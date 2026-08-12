@@ -2,6 +2,7 @@ import { SourceSchemaNoId } from '@hyperdx/common-utils/dist/types';
 import mongoose from 'mongoose';
 
 import * as config from '@/config';
+import { validateConnectionId } from '@/controllers/connection';
 import { createSource, getSource, updateSource } from '@/controllers/sources';
 import type { ToolRegistrar } from '@/mcp/tools/types';
 import {
@@ -9,7 +10,6 @@ import {
   mcpUserError,
   validateObjectId,
 } from '@/mcp/utils/errors';
-import { validateConnectionId } from '@/routers/external-api/v2/sources';
 import { isDuplicateKeyError } from '@/utils/errors';
 
 import { buildSourceInput, mcpSaveSourceSchema } from './schemas';
@@ -26,6 +26,7 @@ export function registerSaveSource({
     {
       permission: 'sources:manage',
       title: 'Create or Update Source',
+      annotations: { destructiveHint: true },
       description:
         'Create a new data source (omit id) or update an existing one ' +
         '(provide id) so shipped telemetry becomes queryable. Update is a ' +

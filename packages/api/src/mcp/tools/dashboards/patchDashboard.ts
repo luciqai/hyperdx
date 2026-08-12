@@ -31,6 +31,7 @@ export function registerPatchDashboard({
     {
       permission: 'dashboards:manage',
       title: 'Patch Dashboard',
+      annotations: { destructiveHint: true },
       description:
         'Make targeted updates to a dashboard without resubmitting the full object. ' +
         'You can update dashboard-level fields (name, tags) and/or replace a single ' +

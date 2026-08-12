@@ -17,6 +17,7 @@ export function registerDeleteWebhook({
     {
       permission: 'webhooks:manage',
       title: 'Delete Webhook',
+      annotations: { destructiveHint: true },
       description:
         'Permanently delete a webhook by ID. Blocked while any alert still ' +
         'references it — reassign or delete those alerts first. Use ' +

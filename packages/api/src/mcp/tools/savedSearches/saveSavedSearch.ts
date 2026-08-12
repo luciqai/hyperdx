@@ -26,6 +26,7 @@ export function registerSaveSavedSearch({
     {
       permission: 'savedSearches:manage',
       title: 'Create or Update Saved Search',
+      annotations: { destructiveHint: true },
       description:
         'Create a new saved search (omit id) or update an existing one (provide id). ' +
         'A saved search stores a reusable query against a data source. ' +

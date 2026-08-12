@@ -20,6 +20,7 @@ export function registerGetDashboard({
     {
       permission: 'dashboards:read',
       title: 'Get Dashboard(s)',
+      annotations: { readOnlyHint: true },
       description:
         'Without an ID: list all dashboards (returns IDs, names, tags). ' +
         'With an ID: get full dashboard detail including all tiles and configuration.',

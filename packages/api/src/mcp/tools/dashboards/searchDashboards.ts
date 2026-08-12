@@ -22,6 +22,7 @@ export function registerSearchDashboards({
     {
       permission: 'dashboards:read',
       title: 'Search Dashboards',
+      annotations: { readOnlyHint: true },
       description:
         'Search dashboards by name and/or tags. Returns matching dashboards with ' +
         'their IDs, names, and tags. More targeted than clickstack_get_dashboard (which ' +
