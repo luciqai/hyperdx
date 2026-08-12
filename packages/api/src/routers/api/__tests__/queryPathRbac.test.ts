@@ -36,7 +36,10 @@ describe('query path RBAC declarations', () => {
     const router = require('@/routers/api/prometheus').default;
     const entries = layersOf(router);
 
-    expect(entries.length).toBe(5);
+    // Exact, not a floor: a new prometheus route that forgot the gate would
+    // otherwise slip through this test. 7 = query_range, query and
+    // query_exemplars (GET + POST each) plus label/:name/values.
+    expect(entries.length).toBe(7);
     for (const entry of entries) {
       expect(entry.declaration).toEqual({
         kind: 'permission',
