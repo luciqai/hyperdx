@@ -71,6 +71,7 @@ export function registerEventPatterns({
   registerTool(
     'clickstack_event_patterns',
     {
+      permission: 'sources:read',
       title: 'Event Pattern Mining',
       annotations: { readOnlyHint: true },
       description:

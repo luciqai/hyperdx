@@ -118,7 +118,9 @@ describe('team router', () => {
     // salt and reports `true`. `user1`/`user2` are created directly via
     // `User.create()` above with no password ever set, so they truthfully
     // have no salt and report `false`.
-    expect(resp.body.data.map(({ _id, ...rest }: any) => rest))
+    //
+    // roleId is a generated ObjectId, so it is stripped alongside _id.
+    expect(resp.body.data.map(({ _id, roleId, ...rest }: any) => rest))
       .toMatchInlineSnapshot(`
       [
         {
@@ -126,16 +128,19 @@ describe('team router', () => {
           "hasPasswordAuth": true,
           "isCurrentUser": true,
           "name": "fake@deploysentinel.com",
+          "roleName": "Admin",
         },
         {
           "email": "user1@example.com",
           "hasPasswordAuth": false,
           "isCurrentUser": false,
+          "roleName": null,
         },
         {
           "email": "user2@example.com",
           "hasPasswordAuth": false,
           "isCurrentUser": false,
+          "roleName": null,
         },
       ]
     `);

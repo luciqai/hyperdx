@@ -18,6 +18,8 @@ declare global {
   namespace Express {
     interface Request {
       _hdx_connection?: Connection;
+      /** Set by validateUserAccessKey; absent on the session path. */
+      _hdx_authPath?: 'access-key';
     }
   }
 }
@@ -150,6 +152,9 @@ export async function validateUserAccessKey(
   }
 
   req.user = user;
+  // Tells the RBAC resolver which fail mode applies when no role is assigned:
+  // the browser fails open as admin, this path fails closed.
+  req._hdx_authPath = 'access-key';
 
   // Attribute access-key authenticated requests (external API v2 + MCP HTTP)
   // with team/user context so their traces are searchable during incidents.

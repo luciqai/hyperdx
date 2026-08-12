@@ -10,6 +10,7 @@ import {
   updateSavedSearch,
 } from '@/controllers/savedSearch';
 import { getSource } from '@/controllers/sources';
+import { requirePermission } from '@/middleware/rbac';
 import { SavedSearch } from '@/models/savedSearch';
 import { processRequestWithEnhancedErrors as validateRequest } from '@/utils/enhancedErrors';
 import {
@@ -370,6 +371,7 @@ const router = express.Router();
  */
 router.get(
   '/',
+  requirePermission('savedSearches', 'read'),
   validateRequest({ query: paginationQuerySchema }),
   async (req, res, next) => {
     try {
@@ -443,6 +445,7 @@ router.get(
  */
 router.get(
   '/:id',
+  requirePermission('savedSearches', 'read'),
   validateRequest({ params: z.object({ id: objectIdSchema }) }),
   async (req, res, next) => {
     try {
@@ -509,6 +512,7 @@ router.get(
  */
 router.post(
   '/',
+  requirePermission('savedSearches', 'manage'),
   validateRequest({ body: savedSearchRequestSchema }),
   requireValidSourceId,
   async (req, res, next) => {
@@ -601,6 +605,7 @@ router.post(
  */
 router.put(
   '/:id',
+  requirePermission('savedSearches', 'manage'),
   validateRequest({
     params: z.object({ id: objectIdSchema }),
     body: savedSearchRequestSchema,
@@ -700,6 +705,7 @@ router.put(
  */
 router.delete(
   '/:id',
+  requirePermission('savedSearches', 'manage'),
   validateRequest({ params: z.object({ id: objectIdSchema }) }),
   async (req, res, next) => {
     try {

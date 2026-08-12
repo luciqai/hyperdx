@@ -14,6 +14,7 @@ import {
 } from '@/controllers/ai';
 import { getSource } from '@/controllers/sources';
 import { getNonNullUserWithTeam } from '@/middleware/auth';
+import { requirePermission } from '@/middleware/rbac';
 import { Api404Error, Api500Error } from '@/utils/errors';
 import { withOperationMetrics } from '@/utils/instrumentation';
 import logger from '@/utils/logger';
@@ -23,6 +24,8 @@ const router = express.Router();
 
 router.post(
   '/assistant',
+  // Reads source metadata (fields and sample key values) to build the prompt.
+  requirePermission('sources', 'read'),
   validateRequest({
     body: z.object({
       text: z.string().min(1).max(10000),

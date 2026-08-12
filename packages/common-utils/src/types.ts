@@ -1783,6 +1783,18 @@ export const BaseSourceSchema = z.object({
   section: z.string().max(256).optional(),
   kind: z.nativeEnum(SourceKind),
   connection: z.string().min(1, 'Server Connection is required'),
+  /**
+   * Display-only, derived server-side by GET /sources. Lets the sources list
+   * render a connection's name without holding connections:read — which
+   * Member and ReadOnly do not (BUG-5).
+   *
+   * Never *persisted* from a write. `SourceSchemaNoId` below omits it, so
+   * `POST /sources` rejects it outright; `PUT /sources/:id` validates against
+   * the full `SourceSchema` and so accepts the key, but it is not on the
+   * Mongoose schema and is dropped before it reaches the database. Treat it as
+   * server-derived on every read regardless of what a client sent.
+   */
+  connectionName: z.string().nullable().optional(),
   from: z.object({
     databaseName: z.string().min(1, 'Database is required'),
     tableName: z.string().min(1, 'Table is required'),
@@ -1976,11 +1988,11 @@ export const SourceSchema = z.discriminatedUnion('kind', [
 export type TSource = z.infer<typeof SourceSchema>;
 
 export const SourceSchemaNoId = z.discriminatedUnion('kind', [
-  LogSourceSchema.omit({ id: true }),
-  TraceSourceSchema.omit({ id: true }),
-  SessionSourceSchema.omit({ id: true }),
-  MetricSourceSchema.omit({ id: true }),
-  PromqlSourceSchema.omit({ id: true }),
+  LogSourceSchema.omit({ id: true, connectionName: true }),
+  TraceSourceSchema.omit({ id: true, connectionName: true }),
+  SessionSourceSchema.omit({ id: true, connectionName: true }),
+  MetricSourceSchema.omit({ id: true, connectionName: true }),
+  PromqlSourceSchema.omit({ id: true, connectionName: true }),
 ]);
 export type TSourceNoId = z.infer<typeof SourceSchemaNoId>;
 
@@ -2309,6 +2321,130 @@ export const TeamApiResponseSchema = z.object({
 
 export type TeamApiResponse = z.infer<typeof TeamApiResponseSchema>;
 
+// ---------------------------------------------------------------------------
+// RBAC
+// ---------------------------------------------------------------------------
+
+export const PermissionLevelSchema = z.enum(['none', 'read', 'manage']);
+export type PermissionLevel = z.infer<typeof PermissionLevelSchema>;
+
+/** Resources taking the full none|read|manage range. */
+export const RESOURCES = [
+  'dashboards',
+  'savedSearches',
+  'sources',
+  'alerts',
+  'webhooks',
+  'connections',
+] as const;
+
+/** Every key addressable by requirePermission, including admin scopes. */
+export const PERMISSION_KEYS = [...RESOURCES, 'users', 'team'] as const;
+export type Resource = (typeof PERMISSION_KEYS)[number];
+
+export const RANK: Record<PermissionLevel, number> = {
+  none: 0,
+  read: 1,
+  manage: 2,
+};
+
+export function hasPermission(
+  held: PermissionLevel | undefined,
+  required: PermissionLevel,
+): boolean {
+  if (held == null) return false;
+  return RANK[held] >= RANK[required];
+}
+
+// `users` has no manage level and `team` has no none level: those cells do not
+// exist in the vocabulary, so no role can ever hold them.
+export const RolePermissionsSchema = z
+  .object({
+    dashboards: PermissionLevelSchema,
+    savedSearches: PermissionLevelSchema,
+    sources: PermissionLevelSchema,
+    alerts: PermissionLevelSchema,
+    webhooks: PermissionLevelSchema,
+    connections: PermissionLevelSchema,
+    users: z.enum(['none', 'read']),
+    team: z.enum(['read', 'manage']),
+  })
+  // BUG-10: an unknown key on the permission map (e.g. isAdmin) is inert
+  // today but looks like a capability, which invites a future misread.
+  .strict();
+export type RolePermissions = z.infer<typeof RolePermissionsSchema>;
+
+export const RoleSchema = z.object({
+  id: z.string(),
+  name: z.string().min(1).max(64),
+  description: z.string().max(256).optional(),
+  isSystem: z.boolean(),
+  isAdmin: z.boolean(),
+  permissions: RolePermissionsSchema,
+  memberCount: z.number().optional(),
+});
+export type Role = z.infer<typeof RoleSchema>;
+
+/** Client-supplied role payload. isSystem/isAdmin are absent by construction. */
+export const RoleInputSchema = z
+  .object({
+    name: z.string().min(1).max(64),
+    description: z.string().max(256).optional(),
+    permissions: RolePermissionsSchema,
+  })
+  // BUG-10: an unknown key on a role document that looks like a capability
+  // (permissions.isAdmin) is inert today and a misread waiting to happen.
+  .strict();
+export type RoleInput = z.infer<typeof RoleInputSchema>;
+
+export const SYSTEM_ROLE_NAMES = ['Admin', 'Member', 'ReadOnly'] as const;
+export type SystemRoleName = (typeof SYSTEM_ROLE_NAMES)[number];
+
+export const SYSTEM_ROLE_PERMISSIONS: Record<SystemRoleName, RolePermissions> =
+  {
+    Admin: {
+      dashboards: 'manage',
+      savedSearches: 'manage',
+      sources: 'manage',
+      alerts: 'manage',
+      webhooks: 'manage',
+      connections: 'manage',
+      users: 'read',
+      team: 'manage',
+    },
+    Member: {
+      dashboards: 'manage',
+      savedSearches: 'manage',
+      sources: 'read',
+      alerts: 'manage',
+      webhooks: 'read',
+      connections: 'none',
+      users: 'read',
+      team: 'read',
+    },
+    ReadOnly: {
+      dashboards: 'read',
+      savedSearches: 'read',
+      sources: 'read',
+      alerts: 'read',
+      webhooks: 'none',
+      connections: 'none',
+      users: 'none',
+      team: 'read',
+    },
+  };
+
+export const SYSTEM_ROLE_DESCRIPTIONS: Record<SystemRoleName, string> = {
+  Admin: 'Full access, including roles and API key rotation',
+  Member: 'Build dashboards and alerts; read-only on sources',
+  ReadOnly: 'View dashboards, searches and alerts',
+};
+
+export const RolesApiResponseSchema = z.object({
+  data: z.array(RoleSchema),
+});
+export type RolesApiResponse = z.infer<typeof RolesApiResponseSchema>;
+
 export const TeamMemberSchema = z.object({
   _id: z.string(),
   email: z.string(),
@@ -2316,6 +2452,8 @@ export const TeamMemberSchema = z.object({
   hasPasswordAuth: z.boolean(),
   isCurrentUser: z.boolean(),
   groupName: z.string().optional(),
+  roleId: z.string().nullable().optional(),
+  roleName: z.string().nullable().optional(),
 });
 
 export type TeamMember = z.infer<typeof TeamMemberSchema>;
@@ -2333,7 +2471,8 @@ export const TeamInvitationSchema = z.object({
   createdAt: z.string(),
   email: z.string(),
   name: z.string().optional(),
-  url: z.string(),
+  // Admin-only: embeds an accept-capable token, so non-admins never receive it.
+  url: z.string().optional(),
 });
 
 export type TeamInvitation = z.infer<typeof TeamInvitationSchema>;
@@ -2385,6 +2524,9 @@ export const MeApiResponseSchema = z.object({
   email: z.string(),
   id: z.string(),
   name: z.string(),
+  // null until the RBAC migration has run; the server fails open as admin in
+  // that case and useMyPermissions mirrors it.
+  role: RoleSchema.nullable().optional(),
   team: TeamSchema.pick({
     id: true,
     name: true,

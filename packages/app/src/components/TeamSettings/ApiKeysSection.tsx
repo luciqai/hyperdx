@@ -5,6 +5,7 @@ import { notifications } from '@mantine/notifications';
 import { IconCheck, IconClipboard } from '@tabler/icons-react';
 
 import api from '@/api';
+import { useMyPermissions } from '@/hooks/useMyPermissions';
 
 function APIKeyCopyButton({
   value,
@@ -40,7 +41,8 @@ export default function ApiKeysSection() {
   const { data: team, refetch: refetchTeam } = api.useTeam();
   const { data: me, isLoading: isLoadingMe } = api.useMe();
   const rotateTeamApiKey = api.useRotateTeamApiKey();
-  const hasAdminAccess = true;
+  // PATCH /team/apiKey is requireAdmin(); rotation is a hard capability.
+  const { isAdmin: hasAdminAccess } = useMyPermissions();
   const [
     rotateApiKeyConfirmationModalShow,
     setRotateApiKeyConfirmationModalShow,

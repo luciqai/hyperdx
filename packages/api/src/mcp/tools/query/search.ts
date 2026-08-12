@@ -61,6 +61,7 @@ export function registerSearch({ context, registerTool }: ToolRegistrar) {
   registerTool(
     'clickstack_search',
     {
+      permission: 'sources:read',
       title: 'Search Events',
       annotations: { readOnlyHint: true },
       description:

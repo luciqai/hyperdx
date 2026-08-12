@@ -1,6 +1,7 @@
 import express from 'express';
 
 import { validateUserAccessKey } from '@/middleware/auth';
+import { noPermissionRequired } from '@/middleware/rbac';
 import alertsRouter from '@/routers/external-api/v2/alerts';
 import chartsRouter from '@/routers/external-api/v2/charts';
 import connectionsRouter from '@/routers/external-api/v2/connections';
@@ -10,66 +11,97 @@ import searchRouter from '@/routers/external-api/v2/search';
 import sourcesRouter from '@/routers/external-api/v2/sources';
 import teamRouter from '@/routers/external-api/v2/team';
 import webhooksRouter from '@/routers/external-api/v2/webhooks';
-import rateLimiter, { rateLimiterKeyGenerator } from '@/utils/rateLimiter';
+import rateLimiter, {
+  ipOnlyKeyGenerator,
+  rateLimiterKeyGenerator,
+} from '@/utils/rateLimiter';
 
 const router = express.Router();
 
+// Runs AFTER validateUserAccessKey so it can key on the authenticated user.
 const defaultRateLimiter = rateLimiter({
   windowMs: 60 * 1000, // 1 minute
-  max: 100, // Limit each API key to 100 requests per `window`
+  max: 100, // Limit each user to 100 requests per `window`
   standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
   legacyHeaders: false, // Disable the `X-RateLimit-*` headers
   keyGenerator: rateLimiterKeyGenerator,
 });
 
-router.get('/', validateUserAccessKey, (req, res, next) => {
-  res.json({
-    version: 'v2',
-    user: req.user?.toJSON(),
-  });
+// Runs BEFORE authentication, so failed key guesses from one origin share a
+// bucket (BUG-8).
+//
+// `skipSuccessfulRequests` is what makes this a *failed-attempt* meter rather
+// than a second traffic limiter. Without it, a shared origin — one NAT, one
+// corporate proxy, one CI runner — spends this budget on legitimate
+// authenticated traffic, and four users each staying inside their own 100/min
+// `defaultRateLimiter` allowance would 429 the whole /api/v2 surface for
+// everyone behind that IP. Throughput is governed per-user, behind auth.
+//
+// Because the budget counts *only failures*, 30/min is generous rather than
+// tight: a legitimate client essentially never fails authentication — a failed
+// bearer means a wrong or revoked key — so legitimate traffic never touches
+// this bucket at all. The ceiling therefore has to sit far below any plausible
+// guessing volume, not near normal request volume. BUG-8's reported
+// reproduction was 105 distinct garbage bearers in one window; a limit above
+// that still returns zero 429s no matter how correct the keying is.
+const authAttemptRateLimiter = rateLimiter({
+  windowMs: 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skipSuccessfulRequests: true,
+  keyGenerator: ipOnlyKeyGenerator,
 });
 
-router.use('/alerts', defaultRateLimiter, validateUserAccessKey, alertsRouter);
-
-router.use('/charts', defaultRateLimiter, validateUserAccessKey, chartsRouter);
-
-router.use(
-  '/connections',
-  defaultRateLimiter,
+/**
+ * The entry stack every /api/v2 mount shares. The order is security
+ * load-bearing and is the reason this is one array rather than nine
+ * hand-written copies:
+ *
+ *  1. `authAttemptRateLimiter` must sit in FRONT of authentication — it meters
+ *     failed key guesses, which never reach a later middleware (BUG-8).
+ *  2. `validateUserAccessKey` establishes `req.user`.
+ *  3. `defaultRateLimiter` keys on that authenticated user, so it must follow.
+ *
+ * Express flattens an array of handlers, so this mounts identically to listing
+ * the three inline. None of them carries an RBAC declaration tag, so the boot
+ * coverage walker still sees each route's own `requirePermission` / `requireAdmin`.
+ */
+const authenticatedV2 = [
+  authAttemptRateLimiter,
   validateUserAccessKey,
-  connectionsRouter,
+  defaultRateLimiter,
+];
+
+router.get(
+  '/',
+  authenticatedV2,
+  // Identity check: returns the caller's own user record.
+  noPermissionRequired('personal-state'),
+  (req, res) => {
+    res.json({
+      version: 'v2',
+      user: req.user?.toJSON(),
+    });
+  },
 );
 
-router.use(
-  '/dashboards',
-  defaultRateLimiter,
-  validateUserAccessKey,
-  dashboardRouter,
-);
+router.use('/alerts', authenticatedV2, alertsRouter);
 
-router.use(
-  '/sources',
-  defaultRateLimiter,
-  validateUserAccessKey,
-  sourcesRouter,
-);
+router.use('/charts', authenticatedV2, chartsRouter);
 
-router.use(
-  '/saved-searches',
-  defaultRateLimiter,
-  validateUserAccessKey,
-  savedSearchesRouter,
-);
+router.use('/connections', authenticatedV2, connectionsRouter);
 
-router.use('/search', defaultRateLimiter, validateUserAccessKey, searchRouter);
+router.use('/dashboards', authenticatedV2, dashboardRouter);
 
-router.use(
-  '/webhooks',
-  defaultRateLimiter,
-  validateUserAccessKey,
-  webhooksRouter,
-);
+router.use('/sources', authenticatedV2, sourcesRouter);
 
-router.use('/team', defaultRateLimiter, validateUserAccessKey, teamRouter);
+router.use('/saved-searches', authenticatedV2, savedSearchesRouter);
+
+router.use('/search', authenticatedV2, searchRouter);
+
+router.use('/webhooks', authenticatedV2, webhooksRouter);
+
+router.use('/team', authenticatedV2, teamRouter);
 
 export default router;
