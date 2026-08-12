@@ -6,7 +6,6 @@ const mockUseMe = jest.fn();
 jest.mock('@/api', () => ({
   __esModule: true,
   // This is a mock of the api.useMe hook, so it must keep the `use` prefix.
-  // eslint-disable-next-line @eslint-react/no-unnecessary-use-prefix
   default: { useMe: () => mockUseMe() },
 }));
 

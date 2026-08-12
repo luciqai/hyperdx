@@ -176,7 +176,10 @@ export default function TeamPage() {
           id: 'team-api-agents-mcp-server',
           content: () => <McpServerSection />,
         },
-        ...(IS_IAC_EXPORT_ENABLED
+        // GET /iac/import-manifest enumerates connections, so it is gated on
+        // connections:read. Offering the section without it would render a
+        // panel that 403s on load.
+        ...(IS_IAC_EXPORT_ENABLED && can('connections', 'read')
           ? [
               {
                 id: 'team-api-agents-iac',

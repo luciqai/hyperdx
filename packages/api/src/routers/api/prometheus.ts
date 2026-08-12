@@ -711,8 +711,8 @@ const queryExemplarsHandler: express.RequestHandler = async (req, res) => {
     });
   }
 };
-router.get('/query_exemplars', queryExemplarsHandler);
-router.post('/query_exemplars', queryExemplarsHandler);
+router.get('/query_exemplars', queryPathGate(), queryExemplarsHandler);
+router.post('/query_exemplars', queryPathGate(), queryExemplarsHandler);
 
 // --------------------------
 // GET /label/:name/values

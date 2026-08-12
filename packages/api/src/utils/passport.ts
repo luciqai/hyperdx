@@ -5,6 +5,7 @@ import { Strategy as LocalStrategy } from 'passport-local';
 import * as config from '@/config';
 import { getSoleTeam } from '@/controllers/team';
 import {
+  createGoogleUser,
   findUserByEmail,
   findUserByGoogleId,
   findUserById,
@@ -120,13 +121,20 @@ if (config.IS_GOOGLE_AUTH_ENABLED) {
           }
 
           if (decision.action === 'provision') {
-            const created = new User({
+            // Least privilege for the least-vetted way in. An admin
+            // promotes from ReadOnly; nothing here can grant more.
+            const created = await createGoogleUser({
               email: decision.email,
-              name: decision.email,
-              team: decision.team._id,
+              teamId: decision.team._id,
               googleId: profile.id,
             });
-            await created.save();
+            if (created == null) {
+              logger.error(
+                { teamId: String(decision.team._id) },
+                'Refusing to provision Google user: ReadOnly role missing',
+              );
+              return done(null, false, { message: 'googleAuthFailed' });
+            }
             logger.info({
               message: `Provisioned user "${decision.email}" via Google`,
               type: 'user_login',

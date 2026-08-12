@@ -179,6 +179,7 @@ const EVALUATIONS_LIMIT = 200;
 type AlertEvaluationsExpRes = express.Response<AlertEvaluationsApiResponse>;
 router.get(
   '/:id/evaluations',
+  requirePermission('alerts', 'read'),
   processRequest({
     params: z.object({ id: objectIdSchema }),
     query: z
