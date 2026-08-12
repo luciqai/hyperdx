@@ -51,12 +51,17 @@ import { serializeError } from 'serialize-error';
 
 import { ALERT_HISTORY_QUERY_CONCURRENCY } from '@/controllers/alertHistory';
 import { AlertState, IAlert, IAlertError } from '@/models/alert';
-import AlertHistory, { IAlertHistory } from '@/models/alertHistory';
+import AlertHistory, {
+  IAlertHistory,
+  IAlertHistoryAnalytics,
+} from '@/models/alertHistory';
 import { IDashboard } from '@/models/dashboard';
 import { ISavedSearch } from '@/models/savedSearch';
 import { ISource } from '@/models/source';
 import { IWebhook } from '@/models/webhook';
 import {
+  isClientTimeoutOrAbortError,
+  isQueryTimeoutError,
   WEBHOOK_REDIRECT_ERROR_MESSAGE,
   WebhookRedirectError,
 } from '@/tasks/checkAlerts/errors';
@@ -84,6 +89,7 @@ import {
   getCounter,
   type OperationOutcome,
   recordOperationOutcome,
+  SpanStatusCode,
 } from '@/utils/instrumentation';
 import logger from '@/utils/logger';
 
@@ -104,6 +110,10 @@ const alertProcessFailuresCounter = getCounter(
       'Count of alert evaluations that threw an unexpected error during processing.',
   },
 );
+const alertBatchFailuresCounter = getCounter('hyperdx.alerts.batch_failures', {
+  description:
+    'Count of alert batches (one per connection) that failed before their alerts could be evaluated, e.g. a ClickHouse connection failure.',
+});
 
 /**
  * Determine if an alert has group-by behavior.
@@ -208,6 +218,29 @@ const getErrorMessage = (e: unknown): string => {
     return e.message;
   }
   return String(e);
+};
+
+const QUERY_TIMEOUT_RETRY_NOTE =
+  'The evaluation is retried on every check, but the alert will not fire until the query completes in time.';
+
+/**
+ * Build the IAlertError for a failed alert query, classifying timeouts
+ * (client request timeout/abort, server-side TIMEOUT_EXCEEDED, socket
+ * timeouts) separately from other query errors so the message is actionable.
+ */
+const makeQueryAlertError = (
+  e: unknown,
+  requestTimeoutMs: number,
+): IAlertError => {
+  if (!isQueryTimeoutError(e)) {
+    return makeAlertError(AlertErrorType.QUERY_ERROR, getErrorMessage(e));
+  }
+  // For the client's own request timeout we know the configured limit; for
+  // server-side timeouts the original ClickHouse message carries the limit.
+  const message = isClientTimeoutOrAbortError(e)
+    ? `Alert query did not complete within the ${Math.round(requestTimeoutMs / 1000)}s evaluation timeout. ${QUERY_TIMEOUT_RETRY_NOTE}`
+    : `Alert query timed out before completing: ${getErrorMessage(e)}. ${QUERY_TIMEOUT_RETRY_NOTE}`;
+  return makeAlertError(AlertErrorType.QUERY_TIMEOUT, message);
 };
 
 // Most webhook errors show a hardcoded message to avoid leaking sensitive request details in the UI.
@@ -792,6 +825,13 @@ export const processAlert = async (
   // availability SLIs cover every real evaluation regardless of exit point.
   const evalStartedAt = performance.now();
   let evalOutcome: OperationOutcome | 'skipped' = 'success';
+  // Scheduled start of the window being evaluated. Hoisted so the catch
+  // blocks can attribute error history records to the correct window.
+  let evaluationWindowStart: Date | undefined;
+  // Diagnostics persisted on every history record this evaluation writes
+  // (query duration, webhook delivery time, backfilled buckets). Populated
+  // progressively; hoisted so the catch blocks can attach what was measured.
+  const evaluationAnalytics: IAlertHistoryAnalytics = {};
   try {
     const windowSizeInMins = ms(alert.interval) / 60000;
     const scheduleStartAt = normalizeScheduleStartAt({
@@ -833,6 +873,7 @@ export const processAlert = async (
       scheduleOffsetMinutes,
       scheduleStartAt,
     );
+    evaluationWindowStart = nowInMinsRoundDown;
     const hasGroupBy = alertHasGroupBy(details);
 
     // Check if we should skip this alert check based on last evaluation time
@@ -966,31 +1007,53 @@ export const processAlert = async (
       });
       // SLO signal for alert data fetching (distinct from the end-to-end
       // evaluation SLI): did ClickHouse serve the alert query, and how fast.
+      const queryDurationMs = performance.now() - queryStartedAt;
+      evaluationAnalytics.queryDurationMs = Math.round(queryDurationMs);
       recordOperationOutcome({
         operation: 'alerts.query',
         outcome: 'success',
-        durationMs: performance.now() - queryStartedAt,
+        durationMs: queryDurationMs,
         attributes: { alert_source: alert.source ?? 'unknown' },
       });
     } catch (e) {
+      const queryDurationMs = performance.now() - queryStartedAt;
+      // Time-to-failure — for QUERY_TIMEOUT this is roughly the configured
+      // evaluation timeout.
+      evaluationAnalytics.queryDurationMs = Math.round(queryDurationMs);
       recordOperationOutcome({
         operation: 'alerts.query',
         outcome: 'error',
-        durationMs: performance.now() - queryStartedAt,
+        durationMs: queryDurationMs,
         attributes: { alert_source: alert.source ?? 'unknown' },
       });
       evalOutcome = 'error';
-      alertQueryFailuresCounter.add(1);
+      const alertError = makeQueryAlertError(
+        e,
+        clickhouseClient.requestTimeoutMs,
+      );
+      alertQueryFailuresCounter.add(1, {
+        error_type:
+          alertError.type === AlertErrorType.QUERY_TIMEOUT
+            ? 'timeout'
+            : 'error',
+      });
       logger.error(
         {
           alertId: alert.id,
+          errorType: alertError.type,
           error: serializeError(e),
         },
         'Alert query failed, skipping state/history update',
       );
-      await alertProvider.recordAlertErrors(alert.id, [
-        makeAlertError(AlertErrorType.QUERY_ERROR, getErrorMessage(e)),
-      ]);
+      // Record the error on the alert and as an ERROR history row for this
+      // window. ERROR rows are excluded from the due-ness gate and date-range
+      // computation, so the failed window is still retried/backfilled.
+      await alertProvider.recordAlertErrors(
+        alert.id,
+        [alertError],
+        nowInMinsRoundDown,
+        evaluationAnalytics,
+      );
       return;
     }
 
@@ -1070,6 +1133,7 @@ export const processAlert = async (
           : `Alert resolved for group "${group}", triggering ${alert.channel.type} notification`,
       );
 
+      const notificationStartedAt = performance.now();
       try {
         // Casts to any here because this is where I stopped unraveling the
         // alert logic requiring large, nested objects. We should look at
@@ -1099,6 +1163,12 @@ export const processAlert = async (
           'Failed to fire channel event',
         );
         executionErrors.push(makeWebhookAlertError(e));
+      } finally {
+        // Total wall time spent delivering notifications in this evaluation
+        // (summed across groups/resolves, includes retries and failures).
+        evaluationAnalytics.webhookDurationMs =
+          (evaluationAnalytics.webhookDurationMs ?? 0) +
+          Math.round(performance.now() - notificationStartedAt);
       }
     };
 
@@ -1191,11 +1261,17 @@ export const processAlert = async (
       // Auto-resolve
       await sendNotificationIfResolved(previous, history, '');
 
+      // Single-value evaluations always cover exactly the current window.
+      evaluationAnalytics.backfilledBuckets = 0;
       const historyRecords = Array.from(histories.values());
+      for (const record of historyRecords) {
+        record.analytics = evaluationAnalytics;
+      }
       await alertProvider.updateAlertState(
         alert.id,
         historyRecords,
         executionErrors,
+        dateRange,
       );
       return;
     }
@@ -1205,6 +1281,12 @@ export const processAlert = async (
       dateRange[0],
       dateRange[1],
       `${windowSizeInMins} minute`,
+    );
+    // Buckets beyond the current window were backfilled in this run —
+    // earlier evaluation ticks were missed (job delay, failed evaluations).
+    evaluationAnalytics.backfilledBuckets = Math.max(
+      0,
+      expectedBuckets.length - 1,
     );
 
     // Group data by time bucket (grouped alerts may have multiple entries per time bucket)
@@ -1404,10 +1486,14 @@ export const processAlert = async (
 
     // Save all history records and update alert state
     const historyRecords = Array.from(histories.values());
+    for (const record of historyRecords) {
+      record.analytics = evaluationAnalytics;
+    }
     await alertProvider.updateAlertState(
       alert.id,
       historyRecords,
       executionErrors,
+      dateRange,
     );
   } catch (e) {
     // Uncomment this for better error messages locally
@@ -1428,9 +1514,14 @@ export const processAlert = async (
         ? AlertErrorType.INVALID_ALERT
         : AlertErrorType.UNKNOWN;
     try {
-      await alertProvider.recordAlertErrors(alert.id, [
-        makeAlertError(type, message),
-      ]);
+      await alertProvider.recordAlertErrors(
+        alert.id,
+        [makeAlertError(type, message)],
+        evaluationWindowStart,
+        Object.keys(evaluationAnalytics).length > 0
+          ? evaluationAnalytics
+          : undefined,
+      );
     } catch (recordErr) {
       logger.error(
         {
@@ -1502,6 +1593,10 @@ export const getPreviousAlertHistories = async (
             $match: {
               alert: id,
               createdAt: { $lte: now, $gte: lookbackDate },
+              // ERROR rows record failed evaluations; they must not count as
+              // "window evaluated" or the failed window would never be
+              // retried/backfilled.
+              state: { $ne: AlertState.ERROR },
             },
           },
           // With a single alert value, the compound index {alert: 1, group: 1, createdAt: -1}
@@ -1600,6 +1695,9 @@ export const getConsecutiveWindowHistories = async (
             $match: {
               alert: id,
               createdAt: { $gte: earliestAllowedTime, $lt: windowStart },
+              // Failed evaluations (ERROR rows) are not evaluated windows and
+              // must not affect consecutive-window counting.
+              state: { $ne: AlertState.ERROR },
             },
           },
           { $sort: { alert: 1, group: 1, createdAt: -1 } },
@@ -1648,19 +1746,24 @@ export default class CheckAlertTask implements HdxTask<CheckAlertsTaskArgs> {
     });
   }
 
+  /**
+   * Schedules every alert in one connection's batch onto the task queue.
+   *
+   * @returns true if the batch was scheduled, false if it failed.
+   */
   async processAlertTask(
     alertTask: AlertTask,
     teamWebhooksById: Map<string, IWebhook>,
-  ) {
-    await tasksTracer.startActiveSpan('processAlertTask', async span => {
-      span.setAttribute(
-        'hyperdx.alerts.team.id',
-        alertTask.conn.team.toString(),
-      );
-      span.setAttribute('hyperdx.alerts.connection.id', alertTask.conn.id);
-      span.setAttribute('hyperdx.alerts.batch.size', alertTask.alerts.length);
-
+  ): Promise<boolean> {
+    return tasksTracer.startActiveSpan('processAlertTask', async span => {
       try {
+        span.setAttribute(
+          'hyperdx.alerts.team.id',
+          alertTask.conn.team.toString(),
+        );
+        span.setAttribute('hyperdx.alerts.connection.id', alertTask.conn.id);
+        span.setAttribute('hyperdx.alerts.batch.size', alertTask.alerts.length);
+
         const { alerts, conn } = alertTask;
         logger.info(
           {
@@ -1686,6 +1789,24 @@ export default class CheckAlertTask implements HdxTask<CheckAlertsTaskArgs> {
             ),
           );
         }
+        return true;
+      } catch (e) {
+        span.setStatus({
+          code: SpanStatusCode.ERROR,
+          message: getErrorMessage(e),
+        });
+        span.recordException(e instanceof Error ? e : new Error(String(e)));
+        alertBatchFailuresCounter.add(1);
+        logger.error(
+          {
+            connectionId: alertTask.conn.id,
+            teamId: alertTask.conn.team.toString(),
+            alertCount: alertTask.alerts.length,
+            error: serializeError(e),
+          },
+          'Failed to process alert batch, skipping its alerts for this cycle',
+        );
+        return false;
       } finally {
         span.end();
       }
@@ -1734,12 +1855,16 @@ export default class CheckAlertTask implements HdxTask<CheckAlertsTaskArgs> {
       `Obtained teams and webhooks for all alertTasks`,
     );
 
+    let failedBatchCount = 0;
     for (const task of alertTasks) {
       const teamWebhooksById =
         teamToWebhooks.get(task.conn.team.toString()) ?? new Map();
-      this.task_queue.add(async () =>
-        this.processAlertTask(task, teamWebhooksById),
-      );
+      this.task_queue.add(async () => {
+        const success = await this.processAlertTask(task, teamWebhooksById);
+        if (!success) {
+          failedBatchCount++;
+        }
+      });
     }
     logger.debug(
       {
@@ -1755,6 +1880,8 @@ export default class CheckAlertTask implements HdxTask<CheckAlertsTaskArgs> {
     logger.info(
       {
         args: this.args,
+        taskCount,
+        failedBatchCount,
       },
       'finished processing all tasks on task_queue',
     );

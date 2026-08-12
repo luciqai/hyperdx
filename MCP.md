@@ -131,6 +131,7 @@ with:
 | `clickstack_search`              | Browse individual log, event, or trace rows                                                  |
 | `clickstack_event_patterns`      | Discover the most common log messages and event patterns using Drain clustering               |
 | `clickstack_event_deltas`        | Compare two row groups and rank properties by how their value distributions differ            |
+| `clickstack_emerging_signals`    | Detect NEW or GONE log/event patterns between a baseline and a current window (two-window Drain novelty diff) |
 | `clickstack_sql`                 | Execute raw ClickHouse SQL for advanced queries (JOINs, CTEs, sub-queries)                   |
 | `clickstack_get_dashboard`       | List all dashboards or get full detail for a specific dashboard                              |
 | `clickstack_save_dashboard`      | Create or update a dashboard with tiles (charts, tables, numbers, search, markdown)          |
@@ -145,6 +146,11 @@ with:
 | `clickstack_get_webhook`         | List available webhook destinations for use as alert notification channels                    |
 | `clickstack_save_webhook`        | Create (omit id) or update (provide id) a webhook notification destination (slack, generic, or incidentio) |
 | `clickstack_delete_webhook`      | Permanently delete a webhook by ID (blocked while alerts still reference it)                   |
+
+> **Maintainers:** when adding/removing/renaming a query tool, update this table
+> and — for builder (non-SQL) tools — the hand-curated `BUILDER_TOOLS_LIST` in
+> `packages/api/src/mcp/tools/query/builderCatalog.ts`. It isn't auto-derived, so
+> it drifts silently.
 
 ### Metric Sources
 
