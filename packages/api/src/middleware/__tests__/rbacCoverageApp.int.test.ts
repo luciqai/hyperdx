@@ -113,8 +113,10 @@ describe('RBAC coverage over the real app', () => {
       // registry mints a fresh one — the outer `assertRbacCoverage` would
       // read a different symbol than the one `root.ts` tagged with here and
       // report every route undeclared.
+      // eslint-disable-next-line @typescript-eslint/no-require-imports, n/no-missing-require
       const rootRouter = require('@/routers/api/root').default;
       const { assertRbacCoverage: assertIsolated } =
+        // eslint-disable-next-line @typescript-eslint/no-require-imports, n/no-missing-require
         require('@/middleware/rbacCoverage') as typeof import('@/middleware/rbacCoverage');
 
       const withGoogle = express();

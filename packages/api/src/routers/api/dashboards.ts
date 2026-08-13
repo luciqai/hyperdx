@@ -1,4 +1,8 @@
 import {
+  validateDashboardFilterModes,
+  validateDashboardFilterVariableNames,
+} from '@hyperdx/common-utils/dist/dashboardValidation';
+import {
   DashboardSchema,
   DashboardWithoutIdSchema,
   PresetDashboard,
@@ -26,11 +30,28 @@ import {
 } from '@/controllers/presetDashboardFilters';
 import { getNonNullUserWithTeam } from '@/middleware/auth';
 import { requirePermission } from '@/middleware/rbac';
-import logger from '@/utils/logger';
 import { objectIdSchema } from '@/utils/zod';
 
 // create routes that will get and update dashboards
 const router = express.Router();
+
+/**
+ * Additional filter validation (uniqueness, at least one mode enabled).
+ */
+const addFilterIssues = (
+  data: {
+    filters?: {
+      name: string;
+      variableName?: string;
+      isBroadcastEnabled?: boolean;
+      isVariableEnabled?: boolean;
+    }[];
+  },
+  ctx: z.RefinementCtx,
+) => {
+  validateDashboardFilterVariableNames(data.filters ?? [], ctx);
+  validateDashboardFilterModes(data.filters ?? [], ctx);
+};
 
 /**
  * Heal legacy `chart-1`..`chart-10` tile colors from #2265 on the request
@@ -79,7 +100,7 @@ router.post(
   requirePermission('dashboards', 'manage'),
   migrateLegacyDashboardTileColors,
   validateRequest({
-    body: DashboardWithoutIdSchema,
+    body: DashboardWithoutIdSchema.superRefine(addFilterIssues),
   }),
   async (req, res, next) => {
     try {
@@ -110,7 +131,7 @@ router.patch(
     params: z.object({
       id: objectIdSchema,
     }),
-    body: DashboardSchema.partial(),
+    body: DashboardSchema.partial().superRefine(addFilterIssues),
   }),
   async (req, res, next) => {
     try {

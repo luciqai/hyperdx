@@ -1599,6 +1599,10 @@ export type DashboardContainer = z.infer<typeof DashboardContainerSchema>;
 
 export const DashboardFilterType = z.enum(['QUERY_EXPRESSION']);
 
+/** Allowed variable names for dashboard filters. Alphanumeric + underscore, must start with a letter. */
+export const DASHBOARD_VARIABLE_NAME_REGEX = /^[a-zA-Z][A-Za-z0-9_]*$/;
+export const DASHBOARD_VARIABLE_NAME_MAX_LENGTH = 64;
+
 export const DashboardFilterSchema = z.object({
   id: z.string(),
   type: DashboardFilterType,
@@ -1611,6 +1615,29 @@ export const DashboardFilterSchema = z.object({
   // Sources this filter applies to. Undefined / missing means the filter
   // applies to all tiles.
   appliesToSourceIds: z.array(z.string().min(1)).optional(),
+  /**
+   * Whether the selected value is applied as a filter condition on matching
+   * tiles. Undefined / missing means ENABLED — every filter that predates this
+   * field broadcasts, and that must not change. Read it through
+   * `isFilterBroadcastEnabled` rather than defaulting at each call site.
+   */
+  isBroadcastEnabled: z.boolean().optional(),
+  /**
+   * Whether the selected value is exposed to tile queries as `$variableName`.
+   * Undefined / missing means DISABLED. Ignored while the dashboard-variables
+   * feature is off.
+   */
+  isVariableEnabled: z.boolean().optional(),
+  /**
+   * Token that tiles reference as `$variableName`. Defaults to the filter's display
+   * name with illegal characters replaced by dashes (`deriveVariableName`).
+   * Ignored when `isVariableEnabled` is not true.
+   */
+  variableName: z
+    .string()
+    .max(DASHBOARD_VARIABLE_NAME_MAX_LENGTH)
+    .regex(DASHBOARD_VARIABLE_NAME_REGEX)
+    .optional(),
 });
 
 export type DashboardFilter = z.infer<typeof DashboardFilterSchema>;
@@ -1863,6 +1890,13 @@ export const LogSourceSchema = BaseSourceSchema.extend({
     .min(1, 'Default Select Expression is required'),
   // Optional fields for logs
   serviceNameExpression: z.string().optional(),
+  /**
+   * Expression identifying the running release of a service. Defaults to the
+   * OpenTelemetry `service.version` resource attribute when unset; teams whose
+   * version lives elsewhere - a container image tag under GitOps, a custom
+   * attribute - point it there instead of changing instrumentation.
+   */
+  serviceVersionExpression: z.string().optional(),
   severityTextExpression: z.string().optional(),
   bodyExpression: z.string().optional(),
   eventAttributesExpression: z.string().optional(),
@@ -1920,6 +1954,8 @@ export const TraceSourceSchema = BaseSourceSchema.extend({
   statusCodeExpression: z.string().optional(),
   statusMessageExpression: z.string().optional(),
   serviceNameExpression: z.string().optional(),
+  /** See `serviceVersionExpression` on `LogSourceSchema`. */
+  serviceVersionExpression: z.string().optional(),
   resourceAttributesExpression: z.string().optional(),
   eventAttributesExpression: z.string().optional(),
   spanEventsValueExpression: z.string().optional(),
