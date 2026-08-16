@@ -16,7 +16,12 @@ import { SavedSearch } from '@/models/savedSearch';
 import { Source } from '@/models/source';
 import Webhook, { WebhookService } from '@/models/webhook';
 
-import { callTool, createTestClient, getFirstText } from './mcpTestUtils';
+import {
+  callTool,
+  createTestClient,
+  getFirstText,
+  MCP_TEST_ADMIN_ROLE,
+} from './mcpTestUtils';
 
 describe('MCP Alert Tools', () => {
   const server = getServer();
@@ -58,6 +63,7 @@ describe('MCP Alert Tools', () => {
     const context: McpContext = {
       teamId: team._id.toString(),
       userId: user._id.toString(),
+      role: MCP_TEST_ADMIN_ROLE,
     };
     client = await createTestClient(context);
   });
@@ -194,6 +200,7 @@ describe('MCP Alert Tools', () => {
         const otherTeamContext: McpContext = {
           teamId: '000000000000000000000099',
           userId: user._id.toString(),
+          role: MCP_TEST_ADMIN_ROLE,
         };
         const client2 = await createTestClient(otherTeamContext);
 
@@ -298,6 +305,7 @@ describe('MCP Alert Tools', () => {
         const otherTeamContext: McpContext = {
           teamId: '000000000000000000000099',
           userId: user._id.toString(),
+          role: MCP_TEST_ADMIN_ROLE,
         };
         const client2 = await createTestClient(otherTeamContext);
 
@@ -719,6 +727,7 @@ describe('MCP Alert Tools', () => {
       const otherTeamContext: McpContext = {
         teamId: '000000000000000000000099',
         userId: user._id.toString(),
+        role: MCP_TEST_ADMIN_ROLE,
       };
       const client2 = await createTestClient(otherTeamContext);
 

@@ -9,6 +9,7 @@ import { connectDB, mongooseConnection } from '@/models';
 import opampApp from '@/opamp/app';
 import { setupTeamDefaults } from '@/setupDefaults';
 import logger from '@/utils/logger';
+import { warnOnRoleLessUsers } from '@/utils/rbacStartup';
 
 export default class Server {
   protected shouldHandleGracefulShutdown = true;
@@ -86,6 +87,8 @@ export default class Server {
     }
 
     await connectDB();
+
+    await warnOnRoleLessUsers();
 
     // Initialize default connections and sources for local app mode
     if (config.IS_LOCAL_APP_MODE) {
