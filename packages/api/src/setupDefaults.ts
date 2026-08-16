@@ -10,7 +10,7 @@ function tryParseJSON(str: string | undefined) {
     if (str != null) {
       return JSON.parse(str);
     }
-  } catch (e) {
+  } catch {
     // skip
   }
   return undefined;

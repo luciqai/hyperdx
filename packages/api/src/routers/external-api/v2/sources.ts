@@ -16,7 +16,6 @@ import {
   updateSource,
 } from '@/controllers/sources';
 import { requirePermission } from '@/middleware/rbac';
-import Connection from '@/models/connection';
 import { SourceDocument } from '@/models/source';
 import { processRequestWithEnhancedErrors as validateRequest } from '@/utils/enhancedErrors';
 import logger from '@/utils/logger';

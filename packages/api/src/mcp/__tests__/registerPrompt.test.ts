@@ -88,8 +88,6 @@ function fakeServer() {
   };
 }
 
-type FakeServer = ReturnType<typeof fakeServer>;
-
 const ctx = (role: McpContext['role']): McpContext => ({
   teamId: 't1',
   userId: 'u1',
@@ -270,7 +268,7 @@ describe('createRegisterPrompt', () => {
   });
 
   it('records nothing for a prompt the role can reach', () => {
-    const { server, registerPrompt } = registrarFor(ADMIN);
+    const { registerPrompt } = registrarFor(ADMIN);
 
     registerPrompt('create_dashboard', declare(), noopHandler);
 
