@@ -15,6 +15,8 @@ import {
   getSources,
   updateSource,
 } from '@/controllers/sources';
+import { requirePermission } from '@/middleware/rbac';
+import Connection from '@/models/connection';
 import { SourceDocument } from '@/models/source';
 import { processRequestWithEnhancedErrors as validateRequest } from '@/utils/enhancedErrors';
 import logger from '@/utils/logger';
@@ -925,22 +927,26 @@ const router = express.Router();
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.get('/', async (req, res, next) => {
-  try {
-    const teamId = req.user?.team;
-    if (teamId == null) {
-      return res.status(403).json({ message: 'Forbidden' });
+router.get(
+  '/',
+  requirePermission('sources', 'read'),
+  async (req, res, next) => {
+    try {
+      const teamId = req.user?.team;
+      if (teamId == null) {
+        return res.status(403).json({ message: 'Forbidden' });
+      }
+
+      const sources: SourceDocument[] = await getSources(teamId.toString());
+
+      return res.json({
+        data: sources.map(formatExternalSource).filter(s => s !== undefined),
+      });
+    } catch (e) {
+      next(e);
     }
-
-    const sources: SourceDocument[] = await getSources(teamId.toString());
-
-    return res.json({
-      data: sources.map(formatExternalSource).filter(s => s !== undefined),
-    });
-  } catch (e) {
-    next(e);
-  }
-});
+  },
+);
 
 /**
  * @openapi
@@ -990,6 +996,7 @@ router.get('/', async (req, res, next) => {
  */
 router.get(
   '/:id',
+  requirePermission('sources', 'read'),
   validateRequest({
     params: z.object({
       id: objectIdSchema,
@@ -1077,6 +1084,7 @@ router.get(
  */
 router.post(
   '/',
+  requirePermission('sources', 'manage'),
   mapRequestGranularitiesToInternalFormat,
   validateRequest({
     body: SourceSchemaNoId,
@@ -1179,6 +1187,7 @@ router.post(
  */
 router.put(
   '/:id',
+  requirePermission('sources', 'manage'),
   mapRequestGranularitiesToInternalFormat,
   validateRequest({
     params: z.object({
@@ -1266,6 +1275,7 @@ router.put(
  */
 router.delete(
   '/:id',
+  requirePermission('sources', 'manage'),
   validateRequest({
     params: z.object({
       id: objectIdSchema,

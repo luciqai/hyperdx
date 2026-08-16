@@ -175,6 +175,7 @@ export function registerTraceWaterfall({
   registerTool(
     'clickstack_trace_waterfall',
     {
+      permission: 'sources:read',
       title: 'Trace Waterfall (single trace)',
       annotations: { readOnlyHint: true },
       description:

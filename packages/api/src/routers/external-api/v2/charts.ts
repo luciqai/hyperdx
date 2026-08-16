@@ -14,8 +14,13 @@ import { z } from 'zod';
 import { getConnectionById } from '@/controllers/connection';
 import { getSource } from '@/controllers/sources';
 import { getTeam } from '@/controllers/team';
+import { requirePermission } from '@/middleware/rbac';
 import { IConnection } from '@/models/connection';
 import { ISource } from '@/models/source';
+import {
+  refineSqlWhere,
+  validateColumnsExpression,
+} from '@/routers/external-api/v2/search';
 import { validateRequestWithEnhancedErrors as validateRequest } from '@/utils/enhancedErrors';
 import {
   getCounter,
@@ -186,6 +191,56 @@ const apiGranularitySchema =
   process.env.NODE_ENV === 'test'
     ? z.union([granularitySchema, z.literal('1s')])
     : granularitySchema;
+
+// `where` and `whereLanguage` live per-series (externalQueryChartSeriesSchema),
+// not on the outer /series request body, so the guard is attached here rather
+// than on the request schema as a whole. BUG-9: this route carried no
+// expression guard whatsoever — a plain subquery in a series' `where` worked.
+//
+// A series carries three expression inputs, not one. `where` becomes
+// `aggCondition`, `field` becomes the select's `valueExpression`, and each
+// `groupBy` entry becomes a groupBy `valueExpression` — see
+// buildChartConfigFromRequest below. `field` and `groupBy` are the direct
+// analogue of /search's `select`, which is the input the original bypass
+// targeted, so guarding only `where` left the closest thing to the reported
+// defect wide open.
+//
+// `where` is gated on `whereLanguage === 'sql'` because it has a Lucene mode in
+// which a subquery-shaped string is a legitimate literal. `field` and `groupBy`
+// have no such mode — they are always raw SQL expressions — so they are
+// guarded unconditionally.
+//
+// Exported for testing only (schema-level guard wiring); not part of the
+// public module surface otherwise.
+export const guardedSeriesSchema = externalQueryChartSeriesSchema.superRefine(
+  (val, ctx) => {
+    // `where` is the one input /search carries too, so its guard is shared.
+    refineSqlWhere(val, ctx);
+
+    if (val.field != null && !validateColumnsExpression(val.field)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['field'],
+        message:
+          'field must not contain semicolons or SELECT subqueries; ' +
+          'use a column reference, map lookup, or scalar function only',
+      });
+    }
+
+    // Per-element paths so the error names the offending entry, not the array.
+    val.groupBy?.forEach((expression, index) => {
+      if (!validateColumnsExpression(expression)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['groupBy', index],
+          message:
+            'groupBy must not contain semicolons or SELECT subqueries; ' +
+            'use a column reference, map lookup, or scalar function only',
+        });
+      }
+    });
+  },
+);
 
 /**
  * Reusable schema for millisecond timestamps validation
@@ -527,10 +582,11 @@ type SeriesResult = {
  */
 router.post(
   '/series',
+  requirePermission('sources', 'read'),
   validateRequest({
     body: z.object({
       series: z
-        .array(externalQueryChartSeriesSchema)
+        .array(guardedSeriesSchema)
         .min(1, { message: 'Series array cannot be empty' })
         .max(5)
         .refine(

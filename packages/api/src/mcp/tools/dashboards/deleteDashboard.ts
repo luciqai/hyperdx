@@ -16,6 +16,7 @@ export function registerDeleteDashboard({
   registerTool(
     'clickstack_delete_dashboard',
     {
+      permission: 'dashboards:manage',
       title: 'Delete Dashboard',
       annotations: { destructiveHint: true },
       description:

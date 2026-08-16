@@ -11,6 +11,7 @@ import {
   updateAlert,
   validateAlertInput,
 } from '@/controllers/alerts';
+import { requirePermission } from '@/middleware/rbac';
 import {
   processRequestWithEnhancedErrors as processRequest,
   validateRequestWithEnhancedErrors as validateRequest,
@@ -352,6 +353,7 @@ const router = express.Router();
  */
 router.get(
   '/:id',
+  requirePermission('alerts', 'read'),
   validateRequest({
     params: z.object({
       id: objectIdSchema,
@@ -456,6 +458,7 @@ router.get(
  */
 router.get(
   '/',
+  requirePermission('alerts', 'read'),
   processRequest({ query: paginationQuerySchema }),
   async (req, res, next) => {
     try {
@@ -541,6 +544,7 @@ router.get(
  */
 router.post(
   '/',
+  requirePermission('alerts', 'manage'),
   processRequest({
     body: alertSchema,
   }),
@@ -636,6 +640,7 @@ router.post(
  */
 router.put(
   '/:id',
+  requirePermission('alerts', 'manage'),
   processRequest({
     body: alertSchema,
     params: z.object({
@@ -714,6 +719,7 @@ router.put(
  */
 router.delete(
   '/:id',
+  requirePermission('alerts', 'manage'),
   validateRequest({
     params: z.object({
       id: objectIdSchema,

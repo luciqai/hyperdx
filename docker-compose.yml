@@ -74,6 +74,12 @@ services:
       # Uncomment the next two lines to enable PromQL (Prometheus-compatible metrics)
       # ENABLE_PROMQL: 'true'
       # NEXT_PUBLIC_ENABLE_PROMQL: 'true'
+      # Google SSO — set these in your .env to enable "Sign in with Google".
+      # Leaving them empty keeps Google sign-in disabled.
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      GOOGLE_ALLOWED_DOMAINS: ${GOOGLE_ALLOWED_DOMAINS:-}
+      GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-}
       # Uncomment to enable the alert detail page (in development)
       # NEXT_PUBLIC_ENABLE_ALERT_DETAILS: 'true'
       DEFAULT_CONNECTIONS:

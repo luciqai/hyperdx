@@ -9,6 +9,7 @@ import mcpRouter from './mcp/app';
 import { isUserAuthenticated } from './middleware/auth';
 import defaultCors from './middleware/cors';
 import { appErrorHandler } from './middleware/error';
+import { assertRbacCoverage } from './middleware/rbacCoverage';
 import routers from './routers/api';
 import clickhouseProxyRouter from './routers/api/clickhouseProxy';
 import connectionsRouter from './routers/api/connections';
@@ -133,6 +134,11 @@ if (
 }
 
 app.use('/api/v2', externalRoutersV2);
+
+// Fails startup if any route is missing an RBAC declaration. /api/v2 is now
+// covered too (slice C). /mcp stays exempt because MCP tools are not Express
+// routes — they get assertMcpCoverage at server construction instead.
+assertRbacCoverage(app, { exemptMounts: ['/mcp'] });
 
 // error handling
 app.use(appErrorHandler);

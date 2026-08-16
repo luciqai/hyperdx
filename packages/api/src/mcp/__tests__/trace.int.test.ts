@@ -14,7 +14,12 @@ import { McpContext } from '@/mcp/tools/types';
 import Connection from '@/models/connection';
 import { Source, type SourceDocument } from '@/models/source';
 
-import { callTool, createTestClient, getFirstText } from './mcpTestUtils';
+import {
+  callTool,
+  createTestClient,
+  getFirstText,
+  MCP_TEST_ADMIN_ROLE,
+} from './mcpTestUtils';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -131,6 +136,7 @@ describe('MCP Trace Tools', () => {
     const context: McpContext = {
       teamId: team._id.toString(),
       userId: user._id.toString(),
+      role: MCP_TEST_ADMIN_ROLE,
     };
     client = await createTestClient(context);
   });

@@ -24,6 +24,7 @@ import {
   DEFAULT_QUERY_TIMEOUT,
   DEFAULT_SEARCH_ROW_LIMIT,
 } from '@/defaults';
+import { useMyPermissions } from '@/hooks/useMyPermissions';
 import { useBrandDisplayName } from '@/theme/ThemeProvider';
 
 type ClickhouseSettingType = 'number' | 'boolean';
@@ -64,7 +65,10 @@ function ClickhouseSettingForm({
 }: ClickhouseSettingFormProps) {
   const { data: me, refetch: refetchMe } = api.useMe();
   const updateClickhouseSettings = api.useUpdateClickhouseSettings();
-  const hasAdminAccess = true;
+  // PATCH /team/clickhouse-settings requires team: manage, NOT admin. The old
+  // name is how this drifted — keeping it would invite the same drift back.
+  const { can } = useMyPermissions();
+  const canManageTeam = can('team', 'manage');
   const [isEditing, setIsEditing] = useState(false);
   const currentValue = me?.team[settingKey];
 
@@ -171,7 +175,7 @@ function ClickhouseSettingForm({
           {description}
         </Text>
       )}
-      {isEditing && hasAdminAccess ? (
+      {isEditing && canManageTeam ? (
         <form onSubmit={form.handleSubmit(onSubmit)}>
           <Group>
             {type === 'boolean' && displayValue ? (
@@ -243,7 +247,7 @@ function ClickhouseSettingForm({
               ? displayValue(currentValue, defaultValue)
               : currentValue?.toString() || 'Not set'}
           </Text>
-          {hasAdminAccess && (
+          {canManageTeam && (
             <Button
               size="xs"
               variant="secondary"
@@ -253,7 +257,7 @@ function ClickhouseSettingForm({
               Change
             </Button>
           )}
-          {hasAdminAccess && isCustomValue && defaultValue != null && (
+          {canManageTeam && isCustomValue && defaultValue != null && (
             <Button
               size="xs"
               variant="subtle"
