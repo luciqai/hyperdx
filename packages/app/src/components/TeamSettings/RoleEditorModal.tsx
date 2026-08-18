@@ -134,8 +134,18 @@ export default function RoleEditorModal({
         />
 
         <Group justify="space-between" gap="md">
-          <Text size="xs" c="dimmed">
-            Inviting and removing members stays with Admins.
+          {/*
+            Enumerated rather than summarised as "some things". Granting every
+            permission here still does not produce an administrator — admin is a
+            hard capability (`requireAdmin`), deliberately not expressible in
+            this matrix so that no custom role can hand out privileges. Naming
+            the excluded capabilities is what stops a "manage everything" role
+            reading as one.
+          */}
+          <Text size="xs" c="dimmed" style={{ maxWidth: 340 }}>
+            Admins only: creating and editing roles, assigning them to members,
+            inviting or removing members, and rotating the ingestion API key. No
+            custom role can grant these.
           </Text>
           <Group gap="xs">
             <Button variant="secondary" onClick={onClose}>
