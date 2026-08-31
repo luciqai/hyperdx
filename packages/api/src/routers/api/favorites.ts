@@ -8,26 +8,37 @@ import {
   removeFavorite,
 } from '@/controllers/favorite';
 import { getNonNullUserWithTeam } from '@/middleware/auth';
+import { noPermissionRequired } from '@/middleware/rbac';
 import { objectIdSchema } from '@/utils/zod';
 
 const router = express.Router();
 
 const resourceTypeSchema = z.enum(['dashboard', 'savedSearch']);
 
-router.get('/', async (req, res, next) => {
-  try {
-    const { teamId, userId } = getNonNullUserWithTeam(req);
+// Favorites are keyed on {team, user, resourceType, resourceId} — genuinely
+// per-user state that no other member can observe, so nothing to gate.
+router.get(
+  '/',
+  noPermissionRequired('personal-state'),
+  async (req, res, next) => {
+    try {
+      const { teamId, userId } = getNonNullUserWithTeam(req);
 
-    const favorites = await getFavorites(userId.toString(), teamId.toString());
+      const favorites = await getFavorites(
+        userId.toString(),
+        teamId.toString(),
+      );
 
-    return res.json(favorites);
-  } catch (e) {
-    next(e);
-  }
-});
+      return res.json(favorites);
+    } catch (e) {
+      next(e);
+    }
+  },
+);
 
 router.put(
   '/',
+  noPermissionRequired('personal-state'),
   validateRequest({
     body: z.object({
       resourceType: resourceTypeSchema,
@@ -54,6 +65,7 @@ router.put(
 
 router.delete(
   '/:resourceType/:resourceId',
+  noPermissionRequired('personal-state'),
   validateRequest({
     params: z.object({
       resourceType: resourceTypeSchema,

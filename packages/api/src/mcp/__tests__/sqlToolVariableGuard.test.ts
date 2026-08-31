@@ -34,7 +34,13 @@ function buildHandler(): Handler {
   const registerTool: RegisterToolFn = (_name, _config, handler) => {
     captured = handler;
   };
-  const context: McpContext = { teamId: 'team-1', userId: 'user-1' };
+  // The registerTool stub above bypasses the RBAC wrapper, so this role is
+  // only here to satisfy McpContext; the guard under test never reads it.
+  const context: McpContext = {
+    teamId: 'team-1',
+    userId: 'user-1',
+    role: { name: 'Admin', isAdmin: true, permissions: {} },
+  };
   const server = new McpServer({ name: 'test', version: '0.0.0' });
   registerSql({ server, context, registerTool });
   if (!captured) throw new Error('handler was not registered');

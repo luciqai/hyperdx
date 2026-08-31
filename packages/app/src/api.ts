@@ -11,6 +11,8 @@ import type {
   MeApiResponse,
   PresetDashboard,
   PresetDashboardFilter,
+  RoleInput,
+  RolesApiResponse,
   RotateAccessKeyApiResponse,
   RotateApiKeyApiResponse,
   TeamApiResponse,
@@ -374,6 +376,47 @@ const api = {
     return useQuery<TeamMembersApiResponse>({
       queryKey: [`team/members`],
       queryFn: () => hdxServer(`team/members`).json<TeamMembersApiResponse>(),
+    });
+  },
+  useRoles() {
+    return useQuery<RolesApiResponse>({
+      queryKey: [`team/roles`],
+      queryFn: () => hdxServer(`team/roles`).json<RolesApiResponse>(),
+    });
+  },
+  useCreateRole() {
+    return useMutation<unknown, HTTPError, RoleInput>({
+      mutationFn: async role =>
+        hdxServer(`team/roles`, {
+          method: 'POST',
+          json: role,
+        }).json(),
+    });
+  },
+  useUpdateRole() {
+    return useMutation<unknown, HTTPError, RoleInput & { id: string }>({
+      mutationFn: async ({ id, ...role }) =>
+        hdxServer(`team/roles/${id}`, {
+          method: 'PATCH',
+          json: role,
+        }).json(),
+    });
+  },
+  useDeleteRole() {
+    return useMutation<unknown, HTTPError, string>({
+      mutationFn: async id =>
+        hdxServer(`team/roles/${id}`, {
+          method: 'DELETE',
+        }).json(),
+    });
+  },
+  useAssignMemberRole() {
+    return useMutation<unknown, HTTPError, { userId: string; roleId: string }>({
+      mutationFn: async ({ userId, roleId }) =>
+        hdxServer(`team/members/${userId}/role`, {
+          method: 'PATCH',
+          json: { roleId },
+        }).json(),
     });
   },
   useSetTeamName() {

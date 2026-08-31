@@ -725,6 +725,7 @@ export function registerDescribeMetric({
   registerTool(
     'clickstack_describe_metric',
     {
+      permission: 'sources:read',
       title: 'Describe Metric',
       annotations: { readOnlyHint: true },
       description:

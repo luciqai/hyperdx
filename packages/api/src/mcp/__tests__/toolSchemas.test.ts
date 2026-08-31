@@ -2,7 +2,7 @@ import Ajv2020 from 'ajv/dist/2020';
 
 import { McpContext } from '@/mcp/tools/types';
 
-import { createTestClient } from './mcpTestUtils';
+import { createTestClient, MCP_TEST_ADMIN_ROLE } from './mcpTestUtils';
 
 /**
  * Every MCP tool's `inputSchema` must be valid JSON Schema draft 2020-12.
@@ -22,7 +22,13 @@ import { createTestClient } from './mcpTestUtils';
 describe('MCP tool input schemas', () => {
   // The tools/list response is built purely from the registered Zod schemas,
   // so no database or ClickHouse fixtures are needed here.
-  const context: McpContext = { teamId: 'team-id', userId: 'user-id' };
+  // Admin: a role-less context hides every tool from tools/list, which would
+  // make this test pass against an empty schema list.
+  const context: McpContext = {
+    teamId: 'team-id',
+    userId: 'user-id',
+    role: MCP_TEST_ADMIN_ROLE,
+  };
 
   // `strict: false` keeps Ajv from complaining about the vocabulary quirks of
   // machine-generated schemas (unknown keywords, `additionalItems`, etc.).

@@ -27,6 +27,7 @@ export class TeamPage {
   private readonly teamMembersSection: Locator;
   private readonly securityPoliciesHeading: Locator;
   private readonly querySettingsHeading: Locator;
+  private readonly rbacRolesSection: Locator;
 
   // Team name elements
   private readonly teamNameDisplay: Locator;
@@ -96,6 +97,7 @@ export class TeamPage {
     this.querySettingsHeading = page.getByText('ClickHouse Client Settings', {
       exact: true,
     });
+    this.rbacRolesSection = page.getByTestId('rbac-roles-section');
 
     this.teamNameDisplay = page.getByTestId('team-name-display');
     this.teamNameChangeButton = page.getByTestId('team-name-change-button');
@@ -151,8 +153,13 @@ export class TeamPage {
     await this.openTab(this.advancedTabButton, this.querySettingsHeading);
   }
 
+  /**
+   * The Access tab is always present (roles always exist). Security Policies
+   * inside it is still conditional on the team having configured auth methods,
+   * so anchor the wait on the RBAC roles section instead.
+   */
   async openAccessTab() {
-    await this.openTab(this.accessTabButton, this.securityPoliciesHeading);
+    await this.openTab(this.accessTabButton, this.rbacRolesSection);
   }
 
   async hasAccessTab() {
@@ -435,6 +442,27 @@ export class TeamPage {
 
   get securityPolicies() {
     return this.securityPoliciesHeading;
+  }
+
+  get rbacRoles() {
+    return this.rbacRolesSection;
+  }
+
+  get addRoleButton() {
+    return this.page.getByTestId('add-role-button');
+  }
+
+  get roleEditorModal() {
+    return this.page.getByTestId('role-editor-modal');
+  }
+
+  /**
+   * Scoped to tbody: `hasText` is a case-insensitive SUBSTRING match, and the
+   * header row contains "Members" — so an unscoped `tr` filter for "Member"
+   * would resolve to the header and the assertions would be vacuous.
+   */
+  getRoleRow(name: string) {
+    return this.rbacRolesSection.locator('tbody tr').filter({ hasText: name });
   }
 
   get querySettings() {

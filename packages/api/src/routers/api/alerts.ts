@@ -26,6 +26,7 @@ import {
   updateAlert,
   validateAlertInput,
 } from '@/controllers/alerts';
+import { requirePermission } from '@/middleware/rbac';
 import { getAlertChannels } from '@/models/alert';
 import { IAlertHistory } from '@/models/alertHistory';
 import { PreSerialized, sendJson } from '@/utils/serialization';
@@ -111,37 +112,42 @@ const formatAlertResponse = (
 };
 
 type AlertsExpRes = express.Response<AlertsApiResponse>;
-router.get('/', async (req, res: AlertsExpRes, next) => {
-  try {
-    const teamId = req.user?.team;
-    if (teamId == null) {
-      return res.sendStatus(403);
+router.get(
+  '/',
+  requirePermission('alerts', 'read'),
+  async (req, res: AlertsExpRes, next) => {
+    try {
+      const teamId = req.user?.team;
+      if (teamId == null) {
+        return res.sendStatus(403);
+      }
+
+      const alerts = await getAlertsEnhanced(teamId);
+
+      const historyMap = await getRecentAlertHistoriesBatch(
+        alerts.map(alert => ({
+          alertId: new ObjectId(alert._id),
+          interval: alert.interval,
+        })),
+        20,
+      );
+
+      const data = alerts.map(alert => {
+        const history = historyMap.get(alert._id.toString()) ?? [];
+        return formatAlertResponse(alert, history);
+      });
+
+      sendJson(res, { data });
+    } catch (e) {
+      next(e);
     }
-
-    const alerts = await getAlertsEnhanced(teamId);
-
-    const historyMap = await getRecentAlertHistoriesBatch(
-      alerts.map(alert => ({
-        alertId: new ObjectId(alert._id),
-        interval: alert.interval,
-      })),
-      20,
-    );
-
-    const data = alerts.map(alert => {
-      const history = historyMap.get(alert._id.toString()) ?? [];
-      return formatAlertResponse(alert, history);
-    });
-
-    sendJson(res, { data });
-  } catch (e) {
-    next(e);
-  }
-});
+  },
+);
 
 type AlertExpRes = express.Response<AlertApiResponse>;
 router.get(
   '/:id',
+  requirePermission('alerts', 'read'),
   validateRequest({
     params: z.object({
       id: objectIdSchema,
@@ -191,6 +197,7 @@ const EVALUATIONS_LIMIT = 200;
 type AlertEvaluationsExpRes = express.Response<AlertEvaluationsApiResponse>;
 router.get(
   '/:id/evaluations',
+  requirePermission('alerts', 'read'),
   processRequest({
     params: z.object({ id: objectIdSchema }),
     query: z
@@ -266,6 +273,7 @@ router.get(
 type AlertHistoryRangeExpRes = express.Response<AlertHistoryRangeApiResponse>;
 router.get(
   '/:id/history',
+  requirePermission('alerts', 'read'),
   processRequest({
     params: z.object({ id: objectIdSchema }),
     query: z
@@ -314,6 +322,7 @@ router.get(
 
 router.post(
   '/',
+  requirePermission('alerts', 'manage'),
   processRequest({ body: internalAlertSchema }),
   async (req, res, next) => {
     const teamId = req.user?.team;
@@ -335,6 +344,7 @@ router.post(
 
 router.put(
   '/:id',
+  requirePermission('alerts', 'manage'),
   processRequest({
     body: internalAlertSchema,
     params: z.object({
@@ -363,6 +373,7 @@ router.put(
 
 router.post(
   '/:id/silenced',
+  requirePermission('alerts', 'manage'),
   validateRequest({
     body: z.object({
       mutedUntil: z
@@ -403,6 +414,7 @@ router.post(
 
 router.delete(
   '/:id/silenced',
+  requirePermission('alerts', 'manage'),
   validateRequest({
     params: z.object({
       id: objectIdSchema,
@@ -431,6 +443,7 @@ router.delete(
 
 router.delete(
   '/:id',
+  requirePermission('alerts', 'manage'),
   validateRequest({
     params: z.object({
       id: objectIdSchema,

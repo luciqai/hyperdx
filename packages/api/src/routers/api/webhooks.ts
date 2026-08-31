@@ -12,6 +12,7 @@ import { z } from 'zod';
 import { validateRequest } from 'zod-express-middleware';
 
 import { createWebhook, deleteWebhook } from '@/controllers/webhook';
+import { requirePermission } from '@/middleware/rbac';
 import { AlertState } from '@/models/alert';
 import Webhook, { WebhookService } from '@/models/webhook';
 import {
@@ -125,6 +126,7 @@ const handleWebhookUrlValidationError = (
 
 router.get(
   '/',
+  requirePermission('webhooks', 'read'),
   validateRequest({
     query: z.object({
       service: z.union([
@@ -155,6 +157,7 @@ router.get(
 
 router.post(
   '/',
+  requirePermission('webhooks', 'manage'),
   validateRequest({
     body: z.object({
       body: z.string().optional(),
@@ -216,6 +219,7 @@ router.post(
 
 router.put(
   '/:id',
+  requirePermission('webhooks', 'manage'),
   validateRequest({
     params: z.object({
       id: z.string().refine(val => {
@@ -368,6 +372,7 @@ router.put(
 
 router.delete(
   '/:id',
+  requirePermission('webhooks', 'manage'),
   validateRequest({
     params: z.object({
       id: z.string().refine(val => {
@@ -398,6 +403,8 @@ router.delete(
 
 router.post(
   '/test',
+  // Sends a real outbound request, so it is a manage-level capability.
+  requirePermission('webhooks', 'manage'),
   validateRequest({
     body: z.object({
       body: z.string().optional(),

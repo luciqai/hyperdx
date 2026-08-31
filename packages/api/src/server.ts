@@ -9,6 +9,7 @@ import { connectDBWithRetry, mongooseConnection } from '@/models';
 import opampApp from '@/opamp/app';
 import { setupTeamDefaults } from '@/setupDefaults';
 import logger from '@/utils/logger';
+import { bootstrapRbacRoles, warnOnRoleLessUsers } from '@/utils/rbacStartup';
 
 export default class Server {
   protected shouldHandleGracefulShutdown = true;
@@ -91,6 +92,13 @@ export default class Server {
     // connectDBWithRetry for why a single failed initial connect must not be
     // allowed to leave the process running but permanently unable to serve.
     await connectDBWithRetry();
+
+    // Ahead of the diagnostic below: an install upgraded from a pre-RBAC
+    // version has no system roles and no seeding path that ever runs, so
+    // bootstrap first and let the warning report whatever it could not fix.
+    await bootstrapRbacRoles();
+
+    await warnOnRoleLessUsers();
 
     // Initialize default connections and sources for local app mode
     if (config.IS_LOCAL_APP_MODE) {
