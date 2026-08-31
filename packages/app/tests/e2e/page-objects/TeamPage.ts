@@ -37,9 +37,10 @@ export class TeamPage {
   private readonly teamNameCancelButton: Locator;
 
   // API Keys elements
+  // Both rotate flows go through the shared `useConfirm` dialog, so only the
+  // triggers are per-key. Its locators are confirmDialog* below.
   private readonly rotateApiKeyButton: Locator;
-  private readonly rotateApiKeyConfirm: Locator;
-  private readonly rotateApiKeyCancel: Locator;
+  private readonly rotateAccessKeyButton: Locator;
 
   // Connections elements
   private readonly addConnectionButton: Locator;
@@ -55,6 +56,8 @@ export class TeamPage {
   private readonly confirmDeleteMemberButton: Locator;
   private readonly cancelDeleteMemberButton: Locator;
   private readonly confirmDialogConfirmBtn: Locator;
+  private readonly confirmDialogCancelBtn: Locator;
+  private readonly confirmDialogModal: Locator;
 
   constructor(page: Page) {
     this.page = page;
@@ -103,8 +106,7 @@ export class TeamPage {
     this.teamNameCancelButton = page.getByTestId('team-name-cancel-button');
 
     this.rotateApiKeyButton = page.getByTestId('rotate-api-key-button');
-    this.rotateApiKeyConfirm = page.getByTestId('rotate-api-key-confirm');
-    this.rotateApiKeyCancel = page.getByTestId('rotate-api-key-cancel');
+    this.rotateAccessKeyButton = page.getByTestId('rotate-access-key-button');
 
     this.addConnectionButton = page.getByTestId('add-connection-button');
 
@@ -117,6 +119,8 @@ export class TeamPage {
     this.confirmDeleteMemberButton = page.getByTestId('confirm-delete-member');
     this.cancelDeleteMemberButton = page.getByTestId('cancel-delete-member');
     this.confirmDialogConfirmBtn = page.getByTestId('confirm-confirm-button');
+    this.confirmDialogCancelBtn = page.getByTestId('confirm-cancel-button');
+    this.confirmDialogModal = page.getByTestId('confirm-modal');
   }
 
   async goto() {
@@ -198,12 +202,16 @@ export class TeamPage {
     await this.rotateApiKeyButton.click();
   }
 
-  async confirmRotateApiKey() {
-    await this.rotateApiKeyConfirm.click();
+  async clickRotateAccessKey() {
+    await this.rotateAccessKeyButton.click();
   }
 
-  async cancelRotateApiKey() {
-    await this.rotateApiKeyCancel.click();
+  // Confirming rotates the shared E2E account's keys. For the personal key that
+  // 401s the bearer requests in dashboard-external-api-*.spec.ts running in
+  // parallel workers, so the rotate specs only cancel. See the note in
+  // team.spec.ts; the confirm path is covered by me.int.test.ts.
+  async cancelConfirmDialog() {
+    await this.confirmDialogCancelBtn.click();
   }
 
   // --- Connections ---
@@ -401,6 +409,15 @@ export class TeamPage {
 
   get rotateButton() {
     return this.rotateApiKeyButton;
+  }
+
+  get rotateAccessKeyTrigger() {
+    return this.rotateAccessKeyButton;
+  }
+
+  /** Shared `useConfirm` dialog, used by both rotate flows. */
+  get confirmDialogBox() {
+    return this.confirmDialogModal;
   }
 
   get members() {

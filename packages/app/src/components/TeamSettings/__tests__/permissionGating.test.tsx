@@ -8,12 +8,17 @@ import { useMyPermissions } from '@/hooks/useMyPermissions';
 
 jest.mock('@/hooks/useMyPermissions');
 
+// The real ConfirmProvider lives in pages/_app.tsx and pulls in next/router.
+// These tests only assert which controls render, never that a dialog opens.
+jest.mock('@/useConfirm', () => ({ useConfirm: () => jest.fn() }));
+
 jest.mock('@/api', () => ({
   __esModule: true,
   default: {
     useTeam: jest.fn(),
     useMe: jest.fn(),
     useRotateTeamApiKey: jest.fn(),
+    useRotatePersonalAccessKey: jest.fn(),
     useWebhooks: jest.fn(),
     useDeleteWebhook: jest.fn(),
     useTeamMembers: jest.fn(),
@@ -50,6 +55,10 @@ beforeEach(() => {
     isLoading: false,
   });
   asMock(api.useRotateTeamApiKey).mockReturnValue({
+    mutate: jest.fn(),
+    isPending: false,
+  });
+  asMock(api.useRotatePersonalAccessKey).mockReturnValue({
     mutate: jest.fn(),
     isPending: false,
   });

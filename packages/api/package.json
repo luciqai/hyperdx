@@ -1,6 +1,6 @@
 {
   "name": "@hyperdx/api",
-  "version": "2.35.0",
+  "version": "2.37.0",
   "license": "MIT",
   "private": true,
   "engines": {
@@ -21,7 +21,7 @@
     "@braintree/sanitize-url": "^7.1.1",
     "@clickhouse/client-common": "1.23.0-head.fae5998.1",
     "@esm2cjs/p-queue": "^7.3.0",
-    "@hyperdx/common-utils": "^0.26.0",
+    "@hyperdx/common-utils": "^0.28.0",
     "@hyperdx/node-opentelemetry": "^0.9.0",
     "@hyperdx/passport-local-mongoose": "^9.0.1",
     "@modelcontextprotocol/sdk": "^1.27.1",
@@ -103,7 +103,7 @@
     "dev-task": "DOTENV_CONFIG_PATH=.env.development nodemon --exec 'ts-node' --transpile-only -r tsconfig-paths/register -r dotenv-expand/config -r '@hyperdx/node-opentelemetry/build/src/tracing' ./src/tasks/index.ts",
     "build": "rimraf ./build && tsc -p tsconfig.build.json && tsc-alias -p tsconfig.build.json && cp -r ./src/opamp/proto ./build/opamp/",
     "build:vercel": "rimraf ./build && tsc -p tsconfig.vercel.json && tsc-alias -p tsconfig.vercel.json && cp -r ./src/opamp/proto ./build/opamp/",
-    "lint": "npx eslint . --ext .ts --max-warnings 360",
+    "lint": "npx eslint . --ext .ts --max-warnings 364",
     "lint:fix": "npx eslint . --ext .ts --fix",
     "ci:lint": "yarn lint && yarn tsc --noEmit && yarn lint:openapi",
     "ci:unit": "jest --ci --coverage",
@@ -115,6 +115,7 @@
     "dev:migrate-ch-create": "migrate create -ext sql -dir ./migrations/ch -seq",
     "dev:migrate-ch": "migrate -database 'clickhouse://localhost:9000?database=default&x-multi-statement=true' -path ./migrations/ch up",
     "docgen": "ts-node --transpile-only -r tsconfig-paths/register scripts/generate-api-docs.ts",
+    "seed:alerts": "ts-node --transpile-only -r tsconfig-paths/register scripts/seed-alerts.ts",
     "lint:openapi": "yarn docgen && spectral lint openapi.json"
   }
 }

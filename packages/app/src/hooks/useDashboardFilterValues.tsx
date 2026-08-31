@@ -5,12 +5,16 @@ import {
   optimizeFacetedKeyValuesConfig,
   optimizeGetKeyValuesCalls,
 } from '@hyperdx/common-utils/dist/core/materializedViews';
+import { FilterSelection } from '@hyperdx/common-utils/dist/dashboardFilterValues';
 import {
   FilterState,
+  ResolvedFilterValuesQuery,
+  resolveFilterValuesWhere,
   serializeFilterState,
 } from '@hyperdx/common-utils/dist/filters';
 import {
   BuilderChartConfigWithDateRange,
+  ChartVariable,
   DashboardFilter,
   isLogSource,
   isTraceSource,
@@ -27,6 +31,9 @@ import { getMetricTableName, mapKeyBy } from '@/utils';
 
 import { useMetadataWithSettings } from './useMetadata';
 
+/** Stable identity for the default, so memos keyed on it don't re-run. */
+const EMPTY_SELECTIONS: ReadonlyMap<string, FilterSelection> = new Map();
+
 type FilterSourceKey = {
   sourceId: string;
   metricType?: string;
@@ -34,13 +41,56 @@ type FilterSourceKey = {
   whereLanguage: 'sql' | 'lucene';
 };
 
-const filterToKey = (filter: DashboardFilter): string =>
+const filterToKey = (
+  filter: DashboardFilter,
+  resolved: ResolvedFilterValuesQuery,
+): string =>
   JSON.stringify({
     sourceId: filter.source,
     metricType: filter.sourceMetricType,
+    // The RESOLVED clause, so two filters whose dropdown queries expand to the
+    // same SQL share one lookup, and a filter whose expansion changes with a
+    // variable's selection gets a distinct query key rather than a stale one.
+    where: resolved.where,
+    whereLanguage: resolved.whereLanguage,
+  } satisfies FilterSourceKey);
+
+/** The resolved dropdown query for `filter`, falling back to the clause as written. */
+const resolvedFor = (
+  resolvedByFilterId: Map<string, ResolvedFilterValuesQuery>,
+  filter: DashboardFilter,
+): ResolvedFilterValuesQuery =>
+  resolvedByFilterId.get(filter.id) ?? {
     where: filter.where ?? '',
     whereLanguage: filter.whereLanguage ?? 'sql',
-  } satisfies FilterSourceKey);
+  };
+
+/**
+ * AND two constraints on the same column together. Reached when two filter
+ * definitions share an expression but hold independent selections: both narrow
+ * a third dropdown's lookup, so the intersection of their inclusions applies,
+ * not whichever one happened to be written last.
+ */
+const intersectSelections = (
+  a: FilterSelection,
+  b: FilterSelection,
+): FilterSelection => ({
+  // An empty `included` is "no inclusion constraint", not "match nothing".
+  included:
+    a.included.size === 0
+      ? b.included
+      : b.included.size === 0
+        ? a.included
+        : new Set([...a.included].filter(v => b.included.has(v))),
+  excluded: new Set([...a.excluded, ...b.excluded]),
+  range:
+    a.range && b.range
+      ? {
+          min: Math.max(a.range.min, b.range.min),
+          max: Math.min(a.range.max, b.range.max),
+        }
+      : (a.range ?? b.range),
+});
 
 type EnrichedCall = GetKeyValueCall<BuilderChartConfigWithDateRange> & {
   /** filterIds[i] = array of filter IDs whose values come from keys[i] */
@@ -52,15 +102,28 @@ type EnrichedCall = GetKeyValueCall<BuilderChartConfigWithDateRange> & {
 function useOptimizedKeyValuesCalls({
   filters,
   dateRange,
-  filterValues,
+  selectionByFilterId,
+  variables,
 }: {
   filters: DashboardFilter[];
   dateRange: [Date, Date];
-  filterValues: FilterState;
+  selectionByFilterId: ReadonlyMap<string, FilterSelection>;
+  variables?: ChartVariable[];
 }) {
   const clickhouseClient = useClickhouseClient();
   const metadata = useMetadataWithSettings();
   const { data: sources, isLoading: isLoadingSources } = useSources();
+
+  // A filter's dropdown query may reference the dashboard's variables. Expand
+  // them here, before the chart config is built, so that react-query and metadata
+  // caches key on the resolved clause rather than the raw one.
+  const resolvedByFilterId = useMemo(() => {
+    const byId = new Map<string, ResolvedFilterValuesQuery>();
+    for (const filter of filters) {
+      byId.set(filter.id, resolveFilterValuesWhere(filter, variables));
+    }
+    return byId;
+  }, [filters, variables]);
 
   // Faceted filtering: each filter's selectable values are narrowed by the
   // CURRENT selections of its sibling filters. For every filter, collect the
@@ -89,21 +152,24 @@ function useOptimizedKeyValuesCalls({
         ) {
           continue;
         }
-        const selection = filterValues[sibling.expression];
+        const selection = selectionByFilterId.get(sibling.id);
         if (
           selection &&
           (selection.included.size > 0 ||
             selection.excluded.size > 0 ||
             selection.range != null)
         ) {
-          prunedState[sibling.expression] = selection;
+          const existing = prunedState[sibling.expression];
+          prunedState[sibling.expression] = existing
+            ? intersectSelections(existing, selection)
+            : selection;
           hasSelection = true;
         }
       }
       byId.set(filter.id, hasSelection ? prunedState : undefined);
     }
     return byId;
-  }, [filters, filterValues]);
+  }, [filters, selectionByFilterId]);
 
   // Group filters by (source, metricType, where, whereLanguage). Every filter in
   // a group is resolved together: an unconstrained group goes through the MV
@@ -112,7 +178,7 @@ function useOptimizedKeyValuesCalls({
   const filtersByGroupKey = useMemo(() => {
     const byGroupKey = new Map<string, DashboardFilter[]>();
     for (const filter of filters) {
-      const key = filterToKey(filter);
+      const key = filterToKey(filter, resolvedFor(resolvedByFilterId, filter));
       const existing = byGroupKey.get(key);
       if (existing) {
         existing.push(filter);
@@ -121,7 +187,7 @@ function useOptimizedKeyValuesCalls({
       }
     }
     return byGroupKey;
-  }, [filters]);
+  }, [filters, resolvedByFilterId]);
 
   const results: UseQueryResult<EnrichedCall[]>[] = useQueries({
     queries: Array.from(filtersByGroupKey.values())
@@ -132,8 +198,10 @@ function useOptimizedKeyValuesCalls({
         const representative = filtersInGroup[0];
         const sourceId = representative.source;
         const metricType = representative.sourceMetricType;
-        const where = representative.where ?? '';
-        const whereLanguage = representative.whereLanguage ?? 'sql';
+        const { where, whereLanguage } = resolvedFor(
+          resolvedByFilterId,
+          representative,
+        );
         const source = sources!.find(s => s.id === sourceId)!;
         const keyExpressions = filtersInGroup.map(f => f.expression);
         const keyConditions = filtersInGroup.map(f =>
@@ -234,8 +302,18 @@ function useOptimizedKeyValuesCalls({
       }),
   });
 
+  // Errors during variable/macro resolution (eg. unclosed parentheses), by filter ID.
+  const resolutionErrors = useMemo(() => {
+    const byId = new Map<string, string>();
+    for (const [filterId, resolved] of resolvedByFilterId) {
+      if (resolved.error) byId.set(filterId, resolved.error);
+    }
+    return byId;
+  }, [resolvedByFilterId]);
+
   return {
     data: results.map(r => r.data ?? []).flat(),
+    resolveErrors: resolutionErrors,
     isFetching: isLoadingSources || results.some(r => r.isFetching),
     isLoading: isLoadingSources || results.every(r => r.isLoading),
   };
@@ -244,21 +322,27 @@ function useOptimizedKeyValuesCalls({
 export function useDashboardFilterValues({
   filters,
   dateRange,
-  filterValues = {},
+  selectionByFilterId = EMPTY_SELECTIONS,
+  variables,
 }: {
   filters: DashboardFilter[];
   dateRange: [Date, Date];
-  filterValues?: FilterState;
+  /** Each filter's current selection, keyed by `filter.id`. */
+  selectionByFilterId?: ReadonlyMap<string, FilterSelection>;
+  /** The dashboard's variables and their current selections, if any */
+  variables?: ChartVariable[];
 }) {
   const metadata = useMetadataWithSettings();
   const {
     data: calls,
+    resolveErrors,
     isFetching: isFetchingOptimizedCalls,
     isLoading: isLoadingOptimizedCalls,
   } = useOptimizedKeyValuesCalls({
     filters,
     dateRange,
-    filterValues,
+    selectionByFilterId,
+    variables,
   });
 
   const { data: sources, isLoading: isSourcesLoading } = useSources();
@@ -348,15 +432,20 @@ export function useDashboardFilterValues({
         }
       });
     });
+    for (const filterId of resolveErrors.keys()) {
+      errored.add(filterId);
+    }
     return { data: map, erroredFilterIds: errored };
-  }, [results, calls]);
+  }, [results, calls, resolveErrors]);
 
   return {
     data: flattenedData,
-    /** Filter IDs whose key-values query failed. */
+    /** Filter IDs whose key-values query failed, or never resolved. */
     erroredFilterIds,
+    /** Error messages, when known, for filters in erroredFilterIds */
+    filterErrorMessages: resolveErrors,
     isLoading: isLoadingOptimizedCalls || results.every(r => r.isLoading),
     isFetching: isFetchingOptimizedCalls || results.some(r => r.isFetching),
-    isError: results.some(r => r.isError),
+    isError: results.some(r => r.isError) || resolveErrors.size > 0,
   };
 }

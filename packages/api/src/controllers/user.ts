@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { v4 as uuidv4 } from 'uuid';
 
 import { seedSystemRoles } from '@/controllers/role';
 import type { ObjectId } from '@/models';
@@ -9,6 +10,17 @@ import User from '@/models/user';
 // role, which the resolver would treat as fail-open admin.
 export function findUserByAccessKey(accessKey: string) {
   return User.findOne({ accessKey }).populate('role');
+}
+
+/**
+ * Rotates a user's personal access key, immediately revoking the previous one.
+ *
+ * There is exactly one key per user and no grace period: findUserByAccessKey
+ * above is hit uncached on every bearer request (see validateUserAccessKey), so
+ * requests presenting the old key start 401ing the instant this returns.
+ */
+export function rotateUserAccessKey(userId: string | ObjectId) {
+  return User.findByIdAndUpdate(userId, { accessKey: uuidv4() }, { new: true });
 }
 
 // Populated on every session request via passport's deserializeUser, so RBAC
