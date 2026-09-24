@@ -14,7 +14,15 @@ import {
   TextInput,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import { IconPencil } from '@tabler/icons-react';
+import {
+  IconAdjustmentsHorizontal,
+  IconApi,
+  IconDatabase,
+  IconPencil,
+  IconPlug,
+  IconShieldLock,
+  IconUsers,
+} from '@tabler/icons-react';
 
 import { useMyPermissions } from '@/hooks/useMyPermissions';
 
@@ -32,11 +40,12 @@ import TeamQueryConfigSection from './components/TeamSettings/TeamQueryConfigSec
 import { useBrandDisplayName } from './theme/ThemeProvider';
 import api from './api';
 import { IS_IAC_EXPORT_ENABLED } from './config';
-import { withAppNav } from './layout';
+import { APP_CONTENT_SCROLL_CONTAINER_ID, withAppNav } from './layout';
 
 type TeamTab = {
   value: string;
   label: string;
+  icon: ReactNode;
   sections: {
     id: string;
     // Always a function of whether this tab is the visible one. Mantine `Tabs`
@@ -142,7 +151,14 @@ export default function TeamPage() {
 
   const tabs: TeamTab[] = [
     ...(dataSections.length > 0
-      ? [{ value: 'data', label: 'Data', sections: dataSections }]
+      ? [
+          {
+            value: 'data',
+            label: 'Data',
+            icon: <IconDatabase size={16} />,
+            sections: dataSections,
+          },
+        ]
       : []),
     // GET /team/members requires users:read, which ReadOnly does not have.
     ...(can('users', 'read')
@@ -150,6 +166,7 @@ export default function TeamPage() {
           {
             value: 'team',
             label: 'Members',
+            icon: <IconUsers size={16} />,
             sections: [
               { id: 'team-members', content: () => <TeamMembersSection /> },
             ],
@@ -161,12 +178,20 @@ export default function TeamPage() {
     // non-admin on a team without them would otherwise land on a blank tab —
     // the "advertises something you can't have" failure the design forbids.
     ...(accessSections.length > 0
-      ? [{ value: 'access', label: 'Access', sections: accessSections }]
+      ? [
+          {
+            value: 'access',
+            label: 'Access',
+            icon: <IconShieldLock size={16} />,
+            sections: accessSections,
+          },
+        ]
       : []),
     // Both sections read the team document (team:read), which every role has.
     {
       value: 'api-agents',
       label: 'API & Agents',
+      icon: <IconApi size={16} />,
       sections: [
         {
           id: 'team-api-agents-api-keys',
@@ -197,6 +222,7 @@ export default function TeamPage() {
           {
             value: 'integrations',
             label: 'Integrations',
+            icon: <IconPlug size={16} />,
             sections: [
               {
                 id: 'team-integrations-webhooks',
@@ -209,6 +235,7 @@ export default function TeamPage() {
     {
       value: 'advanced',
       label: 'Query Settings',
+      icon: <IconAdjustmentsHorizontal size={16} />,
       sections: [
         {
           id: 'team-advanced-query-settings',
@@ -256,7 +283,7 @@ export default function TeamPage() {
         return;
       }
 
-      document.getElementById('app-content-scroll-container')?.scrollTo({
+      document.getElementById(APP_CONTENT_SCROLL_CONTAINER_ID)?.scrollTo({
         top: 0,
       });
 
@@ -362,7 +389,11 @@ export default function TeamPage() {
             <Tabs value={activeTab} onChange={handleTabChange}>
               <Tabs.List>
                 {tabs.map(tab => (
-                  <Tabs.Tab key={tab.value} value={tab.value}>
+                  <Tabs.Tab
+                    key={tab.value}
+                    value={tab.value}
+                    leftSection={tab.icon}
+                  >
                     {tab.label}
                   </Tabs.Tab>
                 ))}

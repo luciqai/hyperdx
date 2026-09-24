@@ -6,7 +6,10 @@ import type {
   TeamTagsApiResponse,
   UpdateClickHouseSettingsApiResponse,
 } from '@hyperdx/common-utils/dist/types';
-import { TeamClickHouseSettingsUpdateSchema } from '@hyperdx/common-utils/dist/types';
+import {
+  TagResourceTypeSchema,
+  TeamClickHouseSettingsUpdateSchema,
+} from '@hyperdx/common-utils/dist/types';
 import crypto from 'crypto';
 import express from 'express';
 import pick from 'lodash/pick';
@@ -398,13 +401,19 @@ type TeamTagsExpRes = express.Response<TeamTagsApiResponse>;
 router.get(
   '/tags',
   requirePermission('team', 'read'),
+  processRequest({
+    query: z.object({
+      /** Limits the response to tags applied to this kind of entity */
+      resourceType: TagResourceTypeSchema.optional(),
+    }),
+  }),
   async (req, res: TeamTagsExpRes, next) => {
     try {
       const teamId = req.user?.team;
       if (teamId == null) {
         throw new Error(`User ${req.user?._id} not associated with a team`);
       }
-      const tags = await getTags(teamId);
+      const tags = await getTags(teamId, req.query.resourceType);
       return res.json({ data: tags });
     } catch (e) {
       next(e);

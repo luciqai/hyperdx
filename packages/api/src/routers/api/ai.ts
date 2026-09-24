@@ -11,6 +11,7 @@ import {
   getAIMetadata,
   getAIModel,
   getChartConfigFromResolvedConfig,
+  llmTelemetry,
 } from '@/controllers/ai';
 import { getSource } from '@/controllers/sources';
 import { getNonNullUserWithTeam } from '@/middleware/auth';
@@ -36,7 +37,7 @@ router.post(
     try {
       const model = getAIModel();
 
-      const { teamId } = getNonNullUserWithTeam(req);
+      const { teamId, userId } = getNonNullUserWithTeam(req);
 
       const { text, sourceId } = req.body;
 
@@ -108,7 +109,14 @@ ${JSON.stringify(allFieldsWithKeys.slice(0, 200).map(f => ({ field: f.key, type:
               output: Output.object({
                 schema: AssistantLineTableConfigSchema,
               }),
-              experimental_telemetry: { isEnabled: true },
+              // teamId/userId flatten to ai.telemetry.metadata.* span
+              // attributes for attribution on the LLM dashboard. Callers
+              // with a conversation-scoped id should also pass sessionId so
+              // their calls group into a session (see llmTelemetry).
+              experimental_telemetry: llmTelemetry({
+                teamId: teamId.toString(),
+                userId: userId.toString(),
+              }),
               prompt,
             });
 
