@@ -93,6 +93,7 @@ export default [
       '.next/**',
       '.next-e2e/**',
       '.storybook/**',
+      'storybook-static/**',
       'node_modules/**',
       'out/**',
       'build/**',
@@ -271,6 +272,8 @@ export default [
           assertFunctionNames: [
             'expectFieldSuggestion',
             'expectValueSuggestion',
+            'expectTileBlockedOn',
+            'expectTileLoaded',
           ],
         },
       ],

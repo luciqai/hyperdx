@@ -3,6 +3,7 @@ import type {
   BaseResultSet,
   ClickHouseSettings,
   DataFormat,
+  Logger,
   ResponseHeaders,
   ResponseJSON,
   Row,
@@ -10,7 +11,11 @@ import type {
 import type { ClickHouseClient as WebClickHouseClient } from '@clickhouse/client-web';
 import * as SQLParser from 'node-sql-parser';
 
-import { getMetadata, Metadata } from '@/core/metadata';
+import {
+  getMetadata,
+  Metadata,
+  quoteIdentifierIfNeeded,
+} from '@/core/metadata';
 import {
   renderChartConfig,
   setChartSelectsAlias,
@@ -18,7 +23,10 @@ import {
 import {
   extractSettingsClauseFromEnd,
   hashCode,
+  type QuotedIdentifierReplacements,
+  replaceBacktickedIdentifiers,
   replaceJsonExpressions,
+  restoreReplacements,
   splitAndTrimWithBracket,
 } from '@/core/utils';
 import { isBuilderChartConfig } from '@/guards';
@@ -29,6 +37,7 @@ export type {
   BaseResultSet,
   ClickHouseSettings,
   DataFormat,
+  Logger,
   ResponseJSON,
   Row,
 };
@@ -376,6 +385,36 @@ export const extractColumnReferencesFromKey = (expr: string): string[] => {
   });
 };
 
+/**
+ * Adapts a `ReadableStream` (what `BaseResultSet.stream()` returns) into an
+ * async iterable. Needed because native async iteration over `ReadableStream`
+ * is missing in some browsers we support.
+ *
+ * Each yielded value is a **chunk** — for the ClickHouse client, an array of
+ * `Row` rather than a single row.
+ */
+export async function* streamToAsyncIterator<T>(
+  stream: ReadableStream<T> | AsyncIterable<T>,
+): AsyncIterableIterator<T> {
+  // The node client's `stream()` hands back a Node `Readable`, which is already
+  // async-iterable; only the web client returns a WHATWG `ReadableStream`.
+  if (!('getReader' in stream)) {
+    yield* stream;
+    return;
+  }
+
+  const reader = stream.getReader();
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) return;
+      yield value;
+    }
+  } finally {
+    reader.releaseLock();
+  }
+}
+
 export interface QueryInputs<Format extends DataFormat> {
   query: string;
   format?: Format;
@@ -396,6 +435,8 @@ export type ClickhouseClientOptions = {
   application?: string;
   /** Defines how long the client will wait for a response from the ClickHouse server before aborting the request, in milliseconds */
   requestTimeout?: number;
+  /** Logger for per-query SQL debug output. When omitted, query logging is silent. */
+  customLogger?: Logger;
 };
 
 export abstract class BaseClickhouseClient {
@@ -412,6 +453,7 @@ export abstract class BaseClickhouseClient {
    */
   protected maxRowReadOnly: boolean;
   protected requestTimeout: number = 3600000;
+  protected readonly customLogger?: Logger;
 
   constructor({
     host,
@@ -420,6 +462,7 @@ export abstract class BaseClickhouseClient {
     queryTimeout,
     application,
     requestTimeout,
+    customLogger,
   }: ClickhouseClientOptions) {
     this.host = host!;
     this.username = username;
@@ -427,6 +470,7 @@ export abstract class BaseClickhouseClient {
     this.queryTimeout = queryTimeout;
     this.maxRowReadOnly = false;
     this.application = application;
+    this.customLogger = customLogger;
     if (requestTimeout != null && requestTimeout >= 0) {
       this.requestTimeout = requestTimeout;
     }
@@ -454,10 +498,12 @@ export abstract class BaseClickhouseClient {
     await this.client?.close();
   }
 
-  protected logDebugQuery(
+  protected logQuery(
     query: string,
     query_params: Record<string, any> = {},
   ): void {
+    if (!this.customLogger) return;
+
     let debugSql = '';
     try {
       debugSql = parameterizedQueryToSql({ sql: query, params: query_params });
@@ -465,11 +511,11 @@ export abstract class BaseClickhouseClient {
       debugSql = query;
     }
 
-    console.debug('--------------------------------------------------------');
-
-    console.debug('Sending Query:', debugSql);
-
-    console.debug('--------------------------------------------------------');
+    this.customLogger.debug({
+      module: 'clickhouse',
+      message: 'Sending query',
+      args: { sql: debugSql },
+    });
   }
 
   protected async processClickhouseSettings({
@@ -536,6 +582,15 @@ export abstract class BaseClickhouseClient {
 
     // Enables full-text (inverted index) search.
     applySettingIfAvailable('enable_full_text_index', '1');
+
+    // 26.3 turned this on by default. On SharedMergeTree it makes PREWHERE
+    // planning fetch per-part sizes for every map key referenced — one S3 GET
+    // each, not interruptible by max_execution_time. The sizes only reorder
+    // PREWHERE conditions, so the pre-26.3 approximation is fine.
+    applySettingIfAvailable(
+      'allow_calculating_subcolumns_sizes_for_merge_tree_reading',
+      '0',
+    );
 
     return {
       ...defaultSettings,
@@ -729,6 +784,7 @@ const ALIAS_FALLBACK_TABLE = '__hdx_alias_src';
 function selectColumnsToAliasMap(
   parsedSql: string,
   jsonReplacements: Map<string, string>,
+  identifierReplacements: QuotedIdentifierReplacements,
 ): Record<string, string> {
   const aliasMap: Record<string, string> = {};
   const parser = new SQLParser.Parser();
@@ -743,12 +799,15 @@ function selectColumnsToAliasMap(
     ast.columns.forEach(column => {
       if (column.as != null) {
         if (column.type === 'expr' && column.expr.type === 'column_ref') {
+          const escapedColumnName = quoteIdentifierIfNeeded(
+            column.expr.column.expr.value,
+          );
           aliasMap[column.as] =
             column.expr.array_index && column.expr.array_index[0]?.brackets
               ? // alias with brackets, ex: ResourceAttributes['service.name'] as service_name
-                `${column.expr.column.expr.value}['${column.expr.array_index[0].index.value}']`
+                `${escapedColumnName}['${column.expr.array_index[0].index.value}']`
               : // normal alias
-                column.expr.column.expr.value;
+                escapedColumnName;
         } else if (column.expr.loc != null) {
           aliasMap[column.as] = parsedSql.slice(
             column.expr.loc.start.offset,
@@ -770,7 +829,14 @@ function selectColumnsToAliasMap(
     }
   }
 
-  return aliasMap;
+  // Replace the backticked identifier replacements with the original quoted identifiers
+  const { quotedText, names } = identifierReplacements;
+  return Object.fromEntries(
+    Object.entries(aliasMap).map(([alias, aliasExpression]) => [
+      names.get(alias) ?? alias,
+      restoreReplacements(aliasExpression, quotedText),
+    ]),
+  );
 }
 
 /**
@@ -883,14 +949,22 @@ export function chSqlToAliasMap(
     // Remove the SETTINGS clause because `SQLParser` doesn't understand it.
     const [sqlWithoutSettingsClause] = extractSettingsClauseFromEnd(sql);
 
+    // Replace backtick-quoted identifiers with placeholder tokens so that a
+    // quoted alias doesn't fail the parse
+    const {
+      sqlWithReplacements: sqlWithoutBackticks,
+      replacements: identifierReplacementsToExpressions,
+    } = replaceBacktickedIdentifiers(sqlWithoutSettingsClause);
+
     // Replace JSON expressions with replacement tokens so that node-sql-parser can parse the SQL
     const { sqlWithReplacements, replacements: jsonReplacementsToExpressions } =
-      replaceJsonExpressions(sqlWithoutSettingsClause);
+      replaceJsonExpressions(sqlWithoutBackticks);
 
     try {
       return selectColumnsToAliasMap(
         sqlWithReplacements,
         jsonReplacementsToExpressions,
+        identifierReplacementsToExpressions,
       );
     } catch (fullParseError) {
       // node-sql-parser's Postgresql dialect rejects some ClickHouse-specific
@@ -904,6 +978,7 @@ export function chSqlToAliasMap(
       return selectColumnsToAliasMap(
         `SELECT ${projection} FROM ${ALIAS_FALLBACK_TABLE}`,
         jsonReplacementsToExpressions,
+        identifierReplacementsToExpressions,
       );
     }
   } catch (e) {

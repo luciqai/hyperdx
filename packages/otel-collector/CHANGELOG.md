@@ -1,5 +1,46 @@
 # @hyperdx/otel-collector
 
+## 2.39.1
+
+## 2.39.0
+
+### Minor Changes
+
+- 7651bc34: feat: add text indexes for seeding the trace schema
+- fc4d5878: feat(otel-collector): compile in spanmetricsconnector
+
+  Available for a user's own pipeline config (e.g. via
+  `CUSTOM_OTELCOL_CONFIG_FILE`) to compute call-count and duration
+  metrics from spans - most useful alongside the existing
+  `datadogreceiver` support for ingesting Datadog Agent traces, where
+  there was previously no way to derive RED metrics from that trace data
+  once ingested. Purely additive: being compiled in changes no default
+  pipeline or behavior on its own.
+
+## 2.38.0
+
+### Patch Changes
+
+- 808b3453: Accept `Bearer `-prefixed Authorization header values on the OTLP receiver in standalone mode (`OTLP_AUTH_TOKEN`). Previously only the bare-token form of the header was accepted, rejecting RFC 6750 clients that send `Authorization: Bearer <token>`. The `Bearer`, `bearer`, and `BEARER` prefixed forms are now accepted alongside the bare token.
+
+## 2.37.0
+
+## 2.36.0
+
+### Minor Changes
+
+- 395ae8d6: feat: support per-signal ClickHouse table TTLs and reconcile TTL on existing tables
+
+  Adds `HYPERDX_OTEL_EXPORTER_LOGS_TTL`, `HYPERDX_OTEL_EXPORTER_TRACES_TTL`, `HYPERDX_OTEL_EXPORTER_METRICS_TTL` and `HYPERDX_OTEL_EXPORTER_SESSIONS_TTL`, each falling back to the existing `HYPERDX_OTEL_EXPORTER_TABLES_TTL`, so retention can be configured independently per signal (e.g. keep logs and traces for 6 months while metrics stay at 30 days).
+
+  When `HYPERDX_OTEL_EXPORTER_RECONCILE_TABLE_TTL=true`, the migrate tool also applies the configured TTL to tables that already exist (`ALTER TABLE ... MODIFY TTL`), diff-guarded so only tables whose retention actually differs are changed. Previously a changed TTL only affected newly-created tables. Extending a retention uses `materialize_ttl_after_modify=1` so data already on disk is kept for the new (longer) period; shrinking uses `=0` so a startup reconcile never triggers a bulk delete (existing parts age out under their old TTL). Only a plain `<anchor> + <one fixed-length interval>` retention is rewritten: compound policies (`TO VOLUME`/`TO DISK` tiering, `RECOMPRESS`, `GROUP BY` rollups, several rules) and calendar-unit retentions (month/quarter/year) are reported and left untouched. Off by default. Implements hyperdxio/hyperdx#1311.
+
+### Patch Changes
+
+- d205a776: Allow the ClickHouse exporter request timeout to be configured with
+  `HYPERDX_OTEL_EXPORTER_TIMEOUT` in both OpAMP-managed and standalone collector
+  modes. The default remains 5 seconds.
+
 ## 2.35.0
 
 ### Minor Changes

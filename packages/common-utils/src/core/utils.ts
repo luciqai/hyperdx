@@ -6,6 +6,7 @@ import { z } from 'zod';
 
 export { default as objectHash } from 'object-hash';
 
+import { isQueryExpressionFilter, isStaticListFilter } from '@/filters';
 import { isBuilderSavedChartConfig, isRawSqlSavedChartConfig } from '@/guards';
 import { MacroExpansionError, MalformedMacroArgsError } from '@/macroErrors';
 import {
@@ -32,6 +33,7 @@ import {
   RawSqlChartConfig,
   SavedChartConfig,
   SortSpecificationList,
+  SourceKind,
   SQLInterval,
   TileTemplateSchema,
   TSource,
@@ -400,6 +402,108 @@ export function replaceJsonExpressions(sql: string) {
   return { sqlWithReplacements, replacements };
 }
 
+const QUOTED_IDENTIFIER_REPLACEMENT_PREFIX = '__hdx_quoted_identifier_';
+
+export type QuotedIdentifierReplacements = {
+  /** Map from sentinel token -> the original quoted SQL text, e.g. `` `x-host-header` `` */
+  quotedText: Map<string, string>;
+  /** Map from sentinel token -> the bare identifier, e.g. `x-host-header` */
+  names: Map<string, string>;
+};
+
+/**
+ * Replaces backtick-quoted identifiers with bare placeholder tokens.
+ *
+ * node-sql-parser's Postgresql dialect accepts a backtick-quoted identifier
+ * wherever a column is referenced, but rejects one used as an alias, so one
+ * backtick-quoted alias broke any other aliases.
+ *
+ * Pairs with `replaceJsonExpressions`: run this first, then tokenize JSON
+ * expressions, and restore in the opposite order (JSON, then identifiers).
+ * A JSON replacement's stored text is sliced from the already-tokenized SQL,
+ * so it can hold identifier tokens; restoring identifiers first would strand
+ * the ones that JSON restoration puts back afterwards.
+ */
+export function replaceBacktickedIdentifiers(sql: string): {
+  sqlWithReplacements: string;
+  replacements: QuotedIdentifierReplacements;
+} {
+  const quotedText = new Map<string, string>();
+  const names = new Map<string, string>();
+  let out = '';
+  let i = 0;
+
+  while (i < sql.length) {
+    const c = sql.charAt(i);
+
+    // Copy string literals and double-quoted identifiers verbatim so
+    // backticks inside them survive.
+    if (c === "'" || c === '"') {
+      out += c;
+      i++;
+      while (i < sql.length) {
+        const char = sql.charAt(i);
+        out += char;
+        i++;
+        if (c === "'" && char === '\\' && i < sql.length) {
+          out += sql.charAt(i);
+          i++;
+          continue;
+        }
+        if (char === c) break;
+      }
+      continue;
+    }
+
+    if (c === '`') {
+      const quotedStart = i;
+      i++;
+      let name = '';
+      while (i < sql.length) {
+        if (sql.charAt(i) === '`') {
+          // A doubled backtick is an escaped literal backtick.
+          if (sql.charAt(i + 1) === '`') {
+            name += '`';
+            i += 2;
+            continue;
+          }
+          i++;
+          break;
+        }
+        name += sql.charAt(i);
+        i++;
+      }
+      const token = `${QUOTED_IDENTIFIER_REPLACEMENT_PREFIX}${quotedText.size}`;
+      quotedText.set(token, sql.slice(quotedStart, i));
+      names.set(token, name);
+      out += token;
+      continue;
+    }
+
+    out += c;
+    i++;
+  }
+
+  return { sqlWithReplacements: out, replacements: { quotedText, names } };
+}
+
+/**
+ * Substitutes placeholder tokens from `replaceBacktickedIdentifiers` or
+ * `replaceJsonExpressions` back into an expression.
+ */
+export function restoreReplacements(
+  expression: string,
+  replacements: Map<string, string>,
+): string {
+  let restored = expression;
+  for (const [token, original] of [...replacements].sort(
+    ([a], [b]) => b.length - a.length,
+  )) {
+    restored = restored.replaceAll(token, original);
+  }
+  return restored;
+}
+
 /**
  * To best support Pre-aggregation in Materialized Views, any new
  * granularities should be multiples of all smaller granularities.
@@ -699,17 +803,24 @@ export function convertToDashboardTemplate(
     input: DashboardFilter,
     sources: TSource[],
   ): DashboardFilter => {
-    const filter = DashboardFilterSchema.strip().parse(structuredClone(input));
+    const filter = DashboardFilterSchema.parse(structuredClone(input));
+
+    // A static filter references nothing in the workspace
+    if (isStaticListFilter(filter)) return filter;
+
     // Extract name from source or default to '' if not found
     filter.source =
-      sources.find(source => source.id === input.source)?.name ?? '';
-    if (input.appliesToSourceIds?.length) {
-      const remapped = input.appliesToSourceIds
-        .map(id => sources.find(source => source.id === id)?.name)
-        .filter((name): name is string => !!name && name.length > 0);
-      filter.appliesToSourceIds = remapped.length > 0 ? remapped : undefined;
-    } else {
-      filter.appliesToSourceIds = undefined;
+      sources.find(source => source.id === filter.source)?.name ?? '';
+
+    if (isQueryExpressionFilter(filter)) {
+      if (filter.appliesToSourceIds?.length) {
+        const remapped = filter.appliesToSourceIds
+          .map(id => sources.find(source => source.id === id)?.name)
+          .filter((name): name is string => !!name && name.length > 0);
+        filter.appliesToSourceIds = remapped.length > 0 ? remapped : undefined;
+      } else {
+        filter.appliesToSourceIds = undefined;
+      }
     }
     return filter;
   };
@@ -877,11 +988,21 @@ export function convertToCategoricalChartConfig(
 /**
  * Number charts collapse to a single aggregate value, so drop the time bucket
  * (granularity) and any group-by.
+ *
+ * Metric formula configs (HDX-5080) additionally always hide their operand
+ * series: the number chart displays the first value column of the result, so
+ * the formula column must be the only one projected — never a raw operand.
+ * Enforced here (the choke point every number render passes through) so it
+ * holds for stale saved configs and display-type switches alike, regardless
+ * of the tile's "Show input series" setting on other display types.
  */
 export function convertToNumberChartConfig(
   config: BuilderChartConfigWithOptTimestamp,
 ): BuilderChartConfigWithOptTimestamp {
-  return omit(config, ['granularity', 'groupBy']);
+  const converted = omit(config, ['granularity', 'groupBy']);
+  return config.formulas?.length
+    ? { ...converted, showOperandSeries: false }
+    : converted;
 }
 
 /**
@@ -1381,6 +1502,38 @@ export function displayTypeSupportsBuilderAlerts(
   );
 }
 
+/**
+ * Display types that can carry formulas — the shapes the formula query
+ * paths render (composed multi-series for metrics, inline single-scan for
+ * events). Shared by the chart editor's "Add Formula" gating and the
+ * external API / MCP tile validation, so the surfaces cannot drift.
+ */
+export const isFormulaDisplayType = (
+  displayType: DisplayType | undefined,
+): displayType is
+  | DisplayType.Line
+  | DisplayType.StackedBar
+  | DisplayType.Table
+  | DisplayType.Number =>
+  displayType === DisplayType.Line ||
+  displayType === DisplayType.StackedBar ||
+  displayType === DisplayType.Table ||
+  displayType === DisplayType.Number;
+
+/**
+ * Source kinds that can carry formulas: metric sources (rendered via the
+ * composed multi-series metric query) and log/trace event sources (compiled
+ * inline in the single-scan SELECT). Shared by the chart editor's
+ * "Add Formula" gating and the external API / MCP tile validation, so the
+ * surfaces cannot drift. Session (and other) sources stay gated off.
+ */
+export const isFormulaSourceKind = (
+  kind: SourceKind | undefined,
+): kind is SourceKind.Metric | SourceKind.Log | SourceKind.Trace =>
+  kind === SourceKind.Metric ||
+  kind === SourceKind.Log ||
+  kind === SourceKind.Trace;
+
 export function displayTypeSupportsPromQLAlerts(
   displayType: DisplayType | undefined,
 ): boolean {
@@ -1567,8 +1720,14 @@ export function validateRawSqlChartConfig(
 
       // Everything else — an unknown variable, a bad argument count, an
       // unrecognized `${v:format}`, an unconfigured metric type — is invisible
-      // to the user until the query fails, so it is reported verbatim.
-      if (!isStillTyping && !isAlreadyReported) {
+      // to the user until the query fails, so it is reported verbatim. A
+      // variable macro's message can already have come from the variable checks
+      // above, which expand the same template.
+      if (
+        !isStillTyping &&
+        !isAlreadyReported &&
+        !errors.includes(error.message)
+      ) {
         errors.push(error.message);
       }
     }

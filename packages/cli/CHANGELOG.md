@@ -1,5 +1,32 @@
 # @hyperdx/cli
 
+## 0.6.3
+
+### Patch Changes
+
+- 53336f78: fix(charts): show decimals on Y-axis ticks under 10 in magnitude
+
+  The Y-axis of a time series chart (and the CLI's termchart equivalent)
+  always rounded tick labels to 0 decimal places, regardless of the chart's
+  Number Format settings. Charts whose values live under 1 (fractional
+  gauges, ratios, sub-1 rates) rendered every axis tick as `0` even though
+  the tooltip and legend showed the correct value.
+
+  A tick under 10 in magnitude (as displayed - a percent tick's magnitude is
+  checked against its ×100 value, not its raw 0-1 ratio) now honors the
+  chart's configured decimals, capped at 2 to keep the label within the
+  axis's fixed width. A tick of 10 or more, and a tick of exactly 0, stay
+  integers exactly as before, whatever the chart's Number Format configures
+
+  - so ordinary counts and the byte/percent tiles in the bundled dashboard
+    templates are unaffected.
+
+## 0.6.2
+
+### Patch Changes
+
+- dc29d57f: Chart formulas are now supported across every API surface that persists or accepts chart configs. The external dashboards API v2 and the MCP `save_dashboard` / `patch_dashboard` tools accept `formulas` (letter-ref arithmetic over the tile's select items, e.g. `A / (A + B) * 100`) and `showOperandSeries` on line, stacked bar, table and number builder tiles, round-trip them through GET/PUT, and validate the expressions on write — unknown series refs, malformed syntax, combining formulas with `asRatio`, multiple formulas on a number tile, and formulas on formula-incapable source kinds (anything other than metric, log, or trace) are all rejected with actionable errors. MCP `query_tile` computes formula columns for both metric and log/trace event tiles, the query-guide prompt documents the feature, and the OpenAPI spec includes the new `Formula` schema. The CLI's dashboard tile pipeline now delegates its number/table config transforms to the shared common-utils implementations, so formula tiles render with operand-hiding behavior identical to the web.
+
 ## 0.6.1
 
 ### Patch Changes

@@ -3,7 +3,9 @@ import { Types } from 'mongoose';
 import { getLoggedInAgent, getServer } from '@/fixtures';
 import Alert from '@/models/alert';
 import Webhook, { WebhookService } from '@/models/webhook';
-import * as template from '@/tasks/checkAlerts/template';
+import * as transports from '@/tasks/checkAlerts/transports';
+import { buildWebhookTemplateVariables } from '@/tasks/checkAlerts/transports/generic';
+import type { Message } from '@/tasks/checkAlerts/transports/types';
 
 const MOCK_WEBHOOK = {
   name: 'Test Webhook',
@@ -1221,16 +1223,49 @@ describe('webhooks router', () => {
 
     beforeEach(() => {
       genericSpy = jest
-        .spyOn(template, 'handleSendGenericWebhook')
+        .spyOn(transports, 'handleSendGenericWebhook')
         .mockResolvedValue(undefined);
       slackSpy = jest
-        .spyOn(template, 'handleSendSlackWebhook')
+        .spyOn(transports, 'handleSendSlackWebhook')
         .mockResolvedValue(undefined);
     });
 
     afterEach(() => {
       genericSpy.mockRestore();
       slackSpy.mockRestore();
+    });
+
+    // The point of a test send is that a body written against the documented
+    // variables renders here exactly as it will on a real firing, so every
+    // enriched field has to be populated.
+    it('populates the enriched template variables on a test send', async () => {
+      const { agent } = await getLoggedInAgent(server);
+
+      await agent
+        .post('/webhooks/test')
+        .send({
+          service: WebhookService.Generic,
+          url: 'https://example.com/webhook',
+          body: '{"text": "test"}',
+        })
+        .expect(200);
+
+      expect(genericSpy).toHaveBeenCalledTimes(1);
+      // Pinned to the literals in the route, not expect.any: a regression that
+      // blanked sourceQuery back to '' is exactly what this guards.
+      expect(genericSpy.mock.calls[0][1]).toMatchObject({
+        alertId: 'test-alert-id',
+        status: 'firing',
+        alertType: 'search',
+        comparator: 'between',
+        threshold: 5,
+        thresholdMax: 10,
+        value: 7,
+        groupKey: 'test-group',
+        sourceQuery: 'SeverityText: "error"',
+        note: 'Test webhook — no runbook',
+        teamId: expect.any(String),
+      });
     });
 
     it('resolves masked URL and headers when webhookId is provided', async () => {
@@ -1258,7 +1293,7 @@ describe('webhooks router', () => {
 
       // The outbound call should receive the real URL and headers
       expect(genericSpy).toHaveBeenCalledTimes(1);
-      const sentWebhook = genericSpy.mock.calls[0][0];
+      const sentWebhook = genericSpy.mock.calls[0][0].channel;
       expect(sentWebhook.url).toBe(realUrl);
       expect(sentWebhook.headers.toJSON()).toEqual({
         Authorization: 'Bearer real-secret',
@@ -1289,11 +1324,40 @@ describe('webhooks router', () => {
 
       // The outbound call should receive the attacker URL and literal ****
       // (NOT the stored real secret)
-      const sentWebhook = genericSpy.mock.calls[0][0];
+      const sentWebhook = genericSpy.mock.calls[0][0].channel;
       expect(sentWebhook.url).toBe('https://attacker.example.com/capture');
       expect(sentWebhook.headers.toJSON()).toEqual({
         Authorization: '****',
       });
+    });
+
+    // The webhook form documents every one of these variables directly above
+    // the Test Webhook button, so a test send has to exercise the same set —
+    // an unset raw number renders `"value": ` and the receiver rejects a
+    // template that works on a real firing.
+    it('sends a sample value for every template variable', async () => {
+      const { agent, team } = await getLoggedInAgent(server);
+
+      await agent
+        .post('/webhooks/test')
+        .send({
+          service: WebhookService.Generic,
+          url: 'https://example.com/webhook',
+          body: '{"text": "test"}',
+        })
+        .expect(200);
+
+      const sent: Message = genericSpy.mock.calls[0][1];
+      const rendered = buildWebhookTemplateVariables(sent);
+
+      for (const [name, value] of Object.entries(rendered)) {
+        expect(`${name}=${value}`).not.toMatch(/=(undefined|null)?$/);
+      }
+      // Emitted unquoted, so these are what break a body when left unset.
+      for (const name of ['threshold', 'thresholdMax', 'value'] as const) {
+        expect(typeof rendered[name]).toBe('number');
+      }
+      expect(sent.teamId).toBe(team._id.toString());
     });
 
     it('returns 404 when webhookId does not exist', async () => {
@@ -1383,7 +1447,7 @@ describe('webhooks router', () => {
         .expect(200);
 
       expect(genericSpy).toHaveBeenCalledTimes(1);
-      const sentWebhook = genericSpy.mock.calls[0][0];
+      const sentWebhook = genericSpy.mock.calls[0][0].channel;
       expect(sentWebhook.url).toBe('https://example.com/webhook');
     });
 
