@@ -1,5 +1,142 @@
 # @hyperdx/api
 
+## 2.41.0
+
+### Minor Changes
+
+- cf95fe60: Add optional Google SSO as an additional sign-in button. Password
+  authentication is unchanged, and the feature stays completely inert unless
+  `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` are set. New users are
+  auto-provisioned into the existing team only when their verified email domain
+  appears in `GOOGLE_ALLOWED_DOMAINS`; an empty list means no account is ever
+  created automatically. Existing users sign in regardless of domain, and an
+  existing password account is linked to its matching Google account on first use.
+- e3eb5fa4: Close 12 RBAC defects found by a manual test pass over the role-based access
+  control work.
+
+  Four of these change behaviour for existing deployments:
+
+  - **`/clickhouse-proxy` and `/v1/prometheus` now require `sources: read`.** All
+    three system roles hold it, so Admin, Member and ReadOnly are unaffected. A
+    custom role deliberately given `sources: none` loses browser query access —
+    previously it could reach the proxy directly and run arbitrary read SQL
+    against the whole ClickHouse cluster.
+  - **MCP prompts now require `sources: read`** and are hidden from `prompts/list`
+    for roles that cannot reach them. An agent running under a restricted access
+    key will stop seeing `create_dashboard`, `dashboard_examples` and
+    `query_guide`. They enumerate the team's real source and connection names,
+    which is why they are gated.
+  - **Invitation URLs are no longer returned to non-admins.** Any integration
+    reading join links from `GET /team/invitations` or
+    `GET /api/v2/team/invitations` under a non-admin key will no longer receive
+    the `url` field. The list itself is unchanged.
+  - **`POST /team/roles` and `PATCH /team/roles/:id` now reject unknown keys.** The
+    role request schemas are strict, so a client that previously sent extra
+    properties alongside `name`, `description` and `permissions` and had them
+    silently ignored now gets a 400 instead.
+  - **Repeated authentication failures from one origin are now capped at 30 per
+    minute** on `/api/v2` and `/api/mcp`. This budget counts _only_ failed
+    requests, so normal traffic never touches it — a client that authenticates
+    successfully is unaffected no matter how many requests it makes. A tool that
+    retries a revoked or mistyped access key in a tight loop will now start
+    receiving 429 after 30 attempts.
+
+  Also fixed: the last-admin guard no longer falls silent when an un-migrated
+  user exists; the RBAC Mongo migration aborts cleanly instead of half-seeding a
+  team whose roles collide by name; concurrent team creation can no longer
+  produce duplicate Admin roles; four UI surfaces no longer offer writes the
+  server rejects; the Team Settings Sources view no longer 403s for Member and
+  ReadOnly, and its source editor — reached via the expand chevron and the "Add
+  source" button, both of which open a form that needs `connections: read` and
+  403s on save — is now hidden from roles without `sources: manage`; the
+  last-admin and no-admin-role conflict messages are now phrased consistently for
+  both the "changing" and "removing" cases; role-less users are counted and
+  warned about at startup; API rate
+  limiting no longer gives each guessed access key its own bucket, and IPv6
+  origins are now bucketed by /64 so a single host's address range cannot buy
+  itself unlimited buckets; the `/api/v2/search` and `/api/v2/charts` expression
+  guard no longer accepts comment-obfuscated subqueries, and on
+  `/api/v2/charts/series` it now covers `field` and `groupBy` as well as `where`;
+  and denied MCP prompt requests once again emit `hyperdx.mcp.prompt.denied`.
+
+- d521f954: Add role-based access control. Teams now have three built-in roles (Admin,
+  Member, ReadOnly) and admins can create custom roles with per-resource
+  permissions from Team Settings → Access. All existing users are migrated to
+  Admin, so no one loses access on upgrade.
+
+  Also fixes a cross-tenant bug in `DELETE /team/invitation/:id`, which deleted
+  by id without scoping to the caller's team.
+
+  Note: source permissions currently govern the interface, not the underlying
+  data — a user can still query ClickHouse directly through the query proxy.
+  Gating the query path is tracked as follow-up work.
+
+- c7fb49f4: Enforce role-based access control on the Bearer-token path. Personal access
+  keys previously granted full administrative capability regardless of the
+  holder's role, so a Member-level key could create dashboards, edit sources, run
+  raw SQL and manage team members through the MCP server or the External API —
+  everything RBAC blocks in the browser.
+
+  All 28 MCP tools and all 40 External API v2 handlers now require a permission.
+  Raw SQL (`clickstack_sql`) requires `connections: manage`, which only Admin
+  holds by default, because free-form SQL bypasses Source mapping entirely.
+
+  **Breaking for existing integrations, deliberately.** Scripts using a
+  non-admin access key to write data or run SQL will start receiving permission
+  errors. Assign the key's user a role with the permissions it needs, or use an
+  Admin key.
+
+  Unlike the browser, a request whose user has no role assigned is now **denied**
+  rather than treated as an administrator: the browser's fail-open exists so an
+  operator is not locked out mid-incident, which does not apply to an unattended
+  agent.
+
+### Patch Changes
+
+- 1a72bed1: Fix upgraded installs booting with no RBAC roles and no way to reach the
+  admin-only routes.
+
+  System roles were only ever seeded during registration, invite acceptance,
+  Google user creation, and the local-app-mode boot. A team that already existed
+  when RBAC shipped was covered by none of them — its only seeding path was the
+  `add_rbac_roles` migrate-mongo migration, which no Docker entrypoint runs. Such
+  installs booted with an empty roles collection and an empty Roles list in Team
+  Settings, with every user resolving as admin through the session fail-open.
+
+  That state was one assignment away from being unrecoverable: creating a custom
+  role with every `manage` permission and assigning it to yourself traded the
+  fail-open for a role that can never satisfy `requireAdmin` (which does not
+  consult permissions, and `createRole` always writes `isAdmin: false`), leaving
+  nobody able to rotate the ingestion API key, assign roles, create roles, or
+  invite and remove members — with no API route left to undo it.
+
+  The API now bootstraps RBAC on every boot: it seeds the three system roles for
+  every team idempotently, assigns the Admin role to users who have none, and
+  repairs a team left with no admin-role holder by promoting its earliest member.
+  The bootstrap fails soft, so it can never prevent the API from starting.
+
+  The role editor now names the capabilities that stay with Admins — role
+  management, role assignment, member invites and removals, and ingestion key
+  rotation — so a "manage everything" custom role no longer reads as an
+  administrator.
+
+- 8e3f8cc9: Assign the ReadOnly role to users auto-provisioned by Google SSO. Previously
+  they were created with no role at all, which the permission resolver treats as
+  fail-open on the browser session path — so a self-service Google sign-up
+  received admin-equivalent access. A provisioning attempt that cannot resolve
+  the team's ReadOnly role now refuses the login rather than creating a role-less
+  user. Promote from ReadOnly in Team Settings → Access.
+
+  Also declares the permissions three previously unannotated routes require:
+  `GET /alerts/:id/evaluations` (`alerts:read`), `GET|POST
+/v1/prometheus/query_exemplars` (`sources:read`), and
+  `GET /iac/import-manifest` (`connections:read`, since the manifest lists
+  connections and webhooks). The "Export to Terraform" section is hidden from
+  roles without `connections:read` to match.
+
+- Updated dependencies [cf95fe60]
+  - @hyperdx/common-utils@0.31.0
+
 ## 2.40.0
 
 ### Minor Changes
