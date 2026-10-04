@@ -85,6 +85,7 @@ export function registerSaveWebhook({
   registerTool(
     'clickstack_save_webhook',
     {
+      permission: 'webhooks:manage',
       title: 'Create or Update Webhook',
       annotations: { destructiveHint: true },
       description:

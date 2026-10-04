@@ -20,6 +20,7 @@ export function registerGetDashboard({
   registerTool(
     'clickstack_get_dashboard',
     {
+      permission: 'dashboards:read',
       title: 'Get Dashboard(s)',
       annotations: { readOnlyHint: true },
       description:

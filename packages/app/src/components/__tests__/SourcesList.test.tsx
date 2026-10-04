@@ -2,15 +2,23 @@ import { SourceKind, TSource } from '@hyperdx/common-utils/dist/types';
 import { screen } from '@testing-library/react';
 
 import { SourcesList } from '@/components/Sources/SourcesList';
-import { useConnections } from '@/connection';
 import { useSources } from '@/source';
 
 jest.mock('next/router', () => ({
   useRouter: () => ({ push: jest.fn(), query: {}, pathname: '/' }),
 }));
 jest.mock('@/source', () => ({ useSources: jest.fn() }));
-jest.mock('@/connection', () => ({ useConnections: jest.fn() }));
 jest.mock('@/config', () => ({ IS_LOCAL_MODE: false }));
+// The list's manage-only controls consult this; the hook itself reaches for
+// `api.useMe()`, which needs a QueryClient this display-focused test has no
+// reason to stand up. Gating is covered in SourcesListPermissions.test.tsx.
+jest.mock('@/hooks/useMyPermissions', () => ({
+  useMyPermissions: () => ({
+    isAdmin: true,
+    isLoading: false,
+    can: () => true,
+  }),
+}));
 jest.mock('@/utils', () => ({
   capitalizeFirstLetter: (s: string) => s.charAt(0).toUpperCase() + s.slice(1),
 }));
@@ -34,14 +42,6 @@ const makeSource = (
   }) as unknown as TSource;
 
 describe('SourcesList section display', () => {
-  beforeEach(() => {
-    asMock(useConnections).mockReturnValue({
-      data: [{ id: 'conn-a', name: 'Default' }],
-      isLoading: false,
-      refetch: jest.fn(),
-    });
-  });
-
   it('shows the section on a sectioned source and nothing on an unsectioned one', () => {
     asMock(useSources).mockReturnValue({
       data: [
@@ -69,5 +69,26 @@ describe('SourcesList section display', () => {
 
     expect(screen.getByText('Logs')).toBeInTheDocument();
     expect(screen.getByText('Traces')).toBeInTheDocument();
+  });
+
+  it('renders the connection name inlined by GET /sources', () => {
+    asMock(useSources).mockReturnValue({
+      data: [
+        {
+          id: 's1',
+          name: 'Logs',
+          kind: 'log',
+          connection: 'c1',
+          connectionName: 'Local CH',
+        },
+      ],
+      isLoading: false,
+      error: null,
+      refetch: jest.fn(),
+    });
+
+    renderWithMantine(<SourcesList withCard={false} />);
+
+    expect(screen.getByText('Local CH')).toBeInTheDocument();
   });
 });

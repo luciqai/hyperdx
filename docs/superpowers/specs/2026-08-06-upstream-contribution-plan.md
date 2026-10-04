@@ -1,0 +1,378 @@
+# Upstreaming RBAC to hyperdxio/hyperdx — Contribution Plan
+
+- **Date:** 2026-08-06
+- **Status:** Draft — awaiting maintainer contact
+- **Source branch:** `rbac` (66 commits, 153 files, +17,367/−921 vs `main`)
+- **Companion:**
+  [`2026-08-06-upstream-rbac-proposal.md`](./2026-08-06-upstream-rbac-proposal.md)
+  — the issue to file
+
+---
+
+## 1. The problem this plan solves
+
+The `rbac` branch is finished and tested, but it cannot be contributed as it
+stands:
+
+|                                           | files | insertions |
+| ----------------------------------------- | ----- | ---------- |
+| `docs/superpowers/*` (planning artifacts) | 6     | 9,158      |
+| `.changeset/`                             | 3     | 92         |
+| api — tests                               | ~40   | ~3,400     |
+| api — src + migrations                    | ~76   | ~2,760     |
+| app                                       | 24    | 1,708      |
+| common-utils                              | 3     | 257        |
+
+Three separate problems are tangled together, and each needs a different fix:
+
+1. **53% of the diff is planning artifacts.** The specs, plans, and mockups
+   under `docs/superpowers/` never go upstream. They become the proposal issue
+   and the PR descriptions instead.
+2. **The history reviews every bug twice.**
+   `feat(api): enforce RBAC on the Bearer path` is followed, twenty commits
+   later, by `fix(rbac): close fail-open holes found in code review` and
+   `fix(api): close the demonstrated expression-guard bypasses`. Those are fixes
+   to code that is not upstream yet. Preserving them makes a reviewer read the
+   broken version first. Remediation must be folded into the commit that
+   introduced the code.
+3. **No maintainer has agreed to any of this.** No issue, no discussion, no
+   Discord thread. A perfect split of an unwanted design is a perfect rejection.
+
+Problem 3 is the binding constraint. Problems 1 and 2 are mechanical.
+
+---
+
+## 2. Sequencing decision: validate before splitting
+
+```mermaid
+flowchart TD
+    A["rbac branch<br/>66 commits, done + tested"] --> B{"Do maintainers<br/>want RBAC,<br/>built this way?"}
+    B -->|"Unknown today"| C["Cannot answer by<br/>opening a PR:<br/>PRs review lines,<br/>not designs"]
+
+    C --> D["Step 1 — WEDGE<br/>Ship the 3 independent<br/>security fixes"]
+    D --> E["Step 2 — PROPOSE<br/>File the RBAC design issue<br/>linking the fork branch"]
+    E --> F{"Maintainer<br/>response?"}
+
+    F -->|"Yes, want it"| G["Step 3 — SPLIT<br/>Open the stack,<br/>PR 1 first"]
+    F -->|"Yes, but redesign"| H["Rework the design<br/>THEN split"]
+    F -->|"No / already planned"| I["Keep the fork.<br/>Zero rebase effort wasted"]
+    F -->|"Silence, 3-4 weeks"| J["Nudge via Discord,<br/>then treat as (I)"]
+
+    G --> K["Merged upstream"]
+    H --> G
+
+    style D fill:#1f6f43,color:#fff
+    style E fill:#1f6f43,color:#fff
+    style G fill:#2b5797,color:#fff
+    style I fill:#8a6d1f,color:#fff
+```
+
+**Why the wedge comes first.** The three security fixes in §3 need no design
+buy-in whatsoever — they are defects in code upstream already ships. Merging
+them makes the author a known contributor before the large proposal lands, and
+gives the proposal a natural opening: _"I found these while building an
+authorization model — here is the model."_
+
+**Why splitting comes last.** Splitting costs 1–2 days of careful rebase.
+Maintainers frequently redraw slice boundaries to match their own review
+preferences. Doing the split before asking risks paying that cost twice.
+
+---
+
+## 3. The wedge: three independent security fixes
+
+Each of these is a defect in code that exists on `main` today. None depends on
+RBAC. Each ships as its own small PR.
+
+### 3.1 Cross-tenant invitation delete
+
+`packages/api/src/routers/api/team.ts:232` on `main`:
+
+```js
+await TeamInvite.findByIdAndDelete(id);
+```
+
+Deletes by `_id` with no team scoping. Any authenticated user of any team can
+delete any other team's pending invitations. Fix is ~6 lines plus a test.
+
+### 3.2 Expression guard bypass on `/api/v2`
+
+`packages/api/src/routers/external-api/v2/search.ts:156` on `main` rejects
+semicolons and `SELECT` subqueries in column expressions. Two holes:
+
+- Comment-obfuscated subqueries defeat the check.
+- On `/api/v2/charts/series`, only `where` is guarded — `field` and `groupBy`
+  are not guarded at all.
+
+Isolate the guard change from the RBAC gating that also lands in these files.
+
+### 3.3 Rate limiter keyed on the guessed credential
+
+`packages/api/src/utils/rateLimiter.ts` exists on `main` and buckets by access
+key, so every guessed key gets a fresh budget and brute force is effectively
+unmetered. IPv6 origins also get a bucket per address rather than per /64.
+
+**Disclosure caveat.** The repo has no `SECURITY.md` and no documented private
+reporting channel. All three are live vulnerabilities in a shipped product, and
+opening public PRs discloses them. Resolve this before pushing — see §7.
+
+---
+
+## 4. Slice boundaries and merge order
+
+Slices are built from the **final state** of each file on `rbac`, not by
+replaying commits. This folds all remediation in automatically and sidesteps a
+66-commit interactive rebase. Correctness check: the union of all slices must
+equal `rbac` minus `docs/superpowers/`.
+
+```mermaid
+flowchart TD
+    W["W · Security wedge<br/>3 standalone PRs<br/>~200 lines"]
+
+    P1["1 · common-utils<br/>Permission types, RANK,<br/>hasPermission, role matrices<br/>~257 lines"]
+    P2["2 · Role model + migration<br/>Role collection, User.role,<br/>backfill to Admin<br/>~400 lines"]
+    P3["3 · Middleware primitives<br/>computeVerdict, resolveVerdict,<br/>requirePermission, requireAdmin<br/>~600 lines"]
+    P4["4 · Route annotations + role CRUD<br/>65 internal routes, roles router,<br/>controllers, auth populate<br/>~1,500 lines"]
+    P5["5 · App UI<br/>PermissionMatrix, RoleEditorModal,<br/>useMyPermissions, gating<br/>~1,700 lines"]
+    P6["6 · MCP + External API v2<br/>Bearer path, guarded registrars,<br/>prompt gating<br/>~2,000 lines"]
+    P7["7 · Coverage boot check<br/>assertRbacCoverage wired into<br/>api-app.ts + MCP coverage floor<br/>~300 lines"]
+
+    W -.->|"independent — can merge<br/>at any point"| P1
+    P1 --> P2 --> P3 --> P4
+    P4 --> P5
+    P4 --> P6
+    P5 --> P7
+    P6 --> P7
+
+    style W fill:#8b2635,color:#fff
+    style P7 fill:#8a6d1f,color:#fff
+```
+
+### Slice contents
+
+| #   | Slice             | Key paths                                                                                                                                     |
+| --- | ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | common-utils      | `common-utils/src/types.ts`, `__tests__/rbac.test.ts`, `__tests__/roleSchemas.test.ts`                                                        |
+| 2   | Model + migration | `api/src/models/role.ts`, `models/user.ts`, `migrations/mongo/20260802120000-add_rbac_roles.ts`, `controllers/__tests__/seedRace.int.test.ts` |
+| 3   | Middleware        | `api/src/middleware/rbac.ts` + its four test files                                                                                            |
+| 4   | Routes + CRUD     | `api/src/routers/api/*.ts`, `controllers/role.ts`, `controllers/user.ts`, `middleware/auth.ts`, `setupDefaults.ts`                            |
+| 5   | App UI            | `packages/app/**`                                                                                                                             |
+| 6   | Bearer path       | `api/src/mcp/**`, `api/src/routers/external-api/**`                                                                                           |
+| 7   | Coverage          | `api/src/middleware/rbacCoverage.ts`, `api/src/utils/rbacStartup.ts`, `api/src/api-app.ts`, `mcp/utils/coverage.ts`, `utils/swagger.ts`       |
+
+### Two hard ordering constraints
+
+Both are derived from the code, not from preference.
+
+**Constraint 1 — the coverage check must merge last.** `assertRbacCoverage`
+(`packages/api/src/middleware/rbacCoverage.ts:71`) throws at startup when any
+authenticated route carries no declaration. Wiring it in before every route is
+annotated breaks `main` for everyone.
+
+**Constraint 2 — the migration must precede the Bearer path.** `computeVerdict`
+returns `'deny'` for `role == null` on the `access-key` path. Merging slice 6
+before slice 2 has seeded roles hard-fails every agent token in the field.
+
+### Why slices 1–3 are safe to merge in isolation
+
+They are inert. Nothing reads them until slice 4 annotates the first route.
+
+```mermaid
+flowchart TD
+    R["Request arrives"] --> L{"IS_LOCAL_APP_MODE?"}
+    L -->|"yes"| A1["allow"]
+    L -->|"no"| N{"role == null?"}
+
+    N -->|"no"| AD{"role.isAdmin?"}
+    AD -->|"yes"| A2["allow"]
+    AD -->|"no"| CK["check<br/>consult permission map"]
+
+    N -->|"yes"| AP{"Which auth path?"}
+    AP -->|"session<br/>(browser)"| FO["allow — FAIL OPEN<br/>operator upgrading mid-incident<br/>must not be locked out"]
+    AP -->|"access-key<br/>(agent / API)"| FC["deny — FAIL CLOSED<br/>an unattended token has no<br/>claim to silent admin"]
+
+    FO --> M["hyperdx.rbac.missing_role++<br/>WARN once per user"]
+    FC --> M
+
+    style FO fill:#8a6d1f,color:#fff
+    style FC fill:#8b2635,color:#fff
+    style A1 fill:#1f6f43,color:#fff
+    style A2 fill:#1f6f43,color:#fff
+```
+
+Because an un-migrated browser user resolves to `allow`, an existing deployment
+that takes slices 1–4 without ever running the migration behaves exactly as it
+does today. That is the upgrade-safety property, and it is the single most
+important thing for maintainers to review.
+
+---
+
+## 5. Commit hygiene inside each slice
+
+```mermaid
+flowchart LR
+    subgraph BEFORE["Current rbac branch"]
+        direction TB
+        B1["feat: enforce RBAC<br/>on Bearer path"]
+        B2["...19 commits..."]
+        B3["fix: close fail-open holes"]
+        B4["fix: close expression-guard<br/>bypasses"]
+        B1 --> B2 --> B3 --> B4
+    end
+
+    subgraph AFTER["Slice 6 as contributed"]
+        direction TB
+        A1["feat(api): enforce RBAC on the<br/>Bearer path (MCP + API v2)<br/><br/>fail-open holes never existed<br/>guard bypasses never existed"]
+    end
+
+    BEFORE ==>|"fold remediation<br/>into its parent"| AFTER
+
+    style BEFORE fill:#3a1f1f,color:#fff
+    style AFTER fill:#1f3a2a,color:#fff
+```
+
+Target: **2–5 commits per slice**, each one a coherent step a reviewer can hold
+in their head. Tests land in the same commit as the code they cover, not in a
+trailing `test:` commit.
+
+Drop entirely: the `docs:` commits, the changesets referring to unlanded work,
+and every `fix:` whose subject describes repairing something introduced on this
+same branch.
+
+---
+
+## 6. What each PR description must carry
+
+Because the planning docs stay out of the diff, the PR description does their
+job:
+
+1. **Why** — the gap being closed, in two sentences.
+2. **Where it sits in the stack** — "3 of 7; depends on #NNN; the coverage check
+   in 7 of 7 is what makes annotation mandatory."
+3. **Upgrade behavior** — what happens to an existing deployment that merges
+   this and nothing else.
+4. **What is deliberately deferred** — the non-goals table from the design spec,
+   condensed.
+5. **Test evidence** — the commands run and their result.
+
+---
+
+## 7. Build status and verification
+
+Ten local branches exist: three standalone wedge fixes off `main`, and the
+seven-slice stack built from the final state of `rbac` so that all remediation
+is folded into the commit that introduced the code.
+
+```
+claude/fix-cross-tenant-invitation-delete   ← main   (wedge, standalone)
+claude/fix-expression-guard-bypass          ← main   (wedge, standalone)
+claude/fix-auth-rate-limit-bucketing        ← main   (wedge, standalone)
+
+claude/rbac-1-permission-types        ← main
+claude/rbac-2-role-model              ← 1
+claude/rbac-3-enforcement-middleware  ← 2
+claude/rbac-4-route-annotations       ← 3
+claude/rbac-5-team-settings-ui        ← 4
+claude/rbac-6-bearer-path             ← 5
+claude/rbac-7-coverage-assertion      ← 6
+```
+
+**Nothing is pushed.** All ten are local-only pending the disclosure decision in
+§8.
+
+### Wedge results
+
+Each wedge branches from `main` independently, so they can be opened in any
+order, and each carries its own changeset. RBAC content was stripped out by hand
+— in every case the coupling was one import plus one `requirePermission` line,
+except `mcp/app.ts`, which also carried the `role` field on `McpContext`.
+
+| Wedge                          | files | +/−      | tsc  | lint | unit api |
+| ------------------------------ | ----- | -------- | ---- | ---- | -------- |
+| cross-tenant invitation delete | 3     | +69/−1   | pass | pass | 601      |
+| expression guard bypass        | 4     | +392/−79 | pass | pass | 618      |
+| auth rate-limit bucketing      | 7     | +476/−86 | pass | pass | 615      |
+
+The cross-tenant regression test was lifted out of `teamRbac.int.test.ts` into a
+standalone `invitationTeamScope.int.test.ts`, since the original file depends on
+roles.
+
+### Stack results
+
+| Slice                  | files | +/−        | tsc api | tsc app | unit cu | unit api | unit app |
+| ---------------------- | ----- | ---------- | ------- | ------- | ------- | -------- | -------- |
+| 1 · permission types   | 4     | +263/−5    | pass    | pass    | 1568    | 601      | 2456     |
+| 2 · role model         | 7     | +515       | pass    | pass    | 1568    | 601      | 2456     |
+| 3 · middleware         | 5     | +446       | pass    | pass    | 1568    | 615      | 2456     |
+| 4 · route annotations  | 37    | +2622/−297 | pass    | pass    | 1568    | 621      | 2456     |
+| 5 · Team Settings UI   | 25    | +1709/−274 | pass    | pass    | 1568    | 621      | 2484     |
+| 6 · Bearer path        | 68    | +2393/−342 | pass    | pass    | 1568    | 691      | 2484     |
+| 7 · coverage assertion | 6     | +258/−2    | pass    | pass    | 1568    | 694      | 2484     |
+
+**Union check:** `git diff claude/rbac-7-coverage-assertion rbac -- packages/`
+is empty. The seven slices reconstruct `rbac` byte-for-byte across every
+package, so nothing was dropped or altered in the split.
+
+Not yet run per-slice: integration tests (`make dev-int`) and E2E (`make e2e`).
+Both need Docker and should run before any PR is opened.
+
+### Two defects the split surfaced
+
+Neither is visible on `rbac`, because both only appear when the work is cut into
+independently-mergeable pieces. Both are fixed in the branches above.
+
+1. **`TeamInvitation.url` optionality landed four PRs before its repair.**
+   Making `url` optional in the shared schema is a consequence of withholding
+   invitation tokens from non-admins (slice 4), but the type lives in
+   `common-utils` (slice 1). Shipping it in slice 1 breaks
+   `TeamMembersSection.tsx`, which passes `invitation.url` to a prop typed
+   `string`. Resolved by keeping `url` required in slice 1 and moving both the
+   optionality and its single UI consumer into slice 4, where the server-side
+   redaction lives.
+
+2. **`jest.setup.ts` referenced a helper from a later slice.** Its `afterEach`
+   calls `resetRateLimitersForTests` from `utils/rateLimiter`, which is slice 6.
+   Placed in slice 4, it failed all 34 api suites at import time. Resolved by
+   attributing each jest config hunk to its cause: `jest.setup.ts` → slice 6
+   (rate limiter), `jest.int.config.js` → slice 2 (it exists to discover the
+   migration tests).
+
+### Carried over, still to do
+
+- **Integration and E2E tests have not run per branch.** Both need Docker.
+  `rateLimit.int.test.ts` and `invitationTeamScope.int.test.ts` ship with their
+  wedges but have only been typechecked, not executed. Run `make dev-int` on
+  each branch before opening anything.
+- **The `.gitignore` hunk** (`specs/` → `/specs/`) is not carried by any branch.
+  It exists to stop the root-level Playwright ignore pattern from swallowing
+  `docs/superpowers/specs/`. Fork-local; drop it or send it separately.
+- **PR descriptions are not written.** §6 lists what each must carry. The
+  planning docs stay out of the diff, so the description does their job.
+- **Slice 4's changeset claims the invitation fixes.** If the cross-tenant wedge
+  merges upstream first, drop that paragraph from
+  `.changeset/rbac-4-route-annotations.md` and rebuild the stack — otherwise the
+  release notes describe the same fix twice.
+
+### A caution about the local build
+
+`yarn build:common-utils` served a **stale cached `dist`** during this work,
+which produced a phantom type error in `routers/api/team.ts` on branches whose
+source was actually correct — including on `rbac` itself. When typechecking
+across branches, bust the cache:
+
+```bash
+rm -rf packages/common-utils/dist
+NX_SKIP_NX_CACHE=true yarn build:common-utils
+```
+
+---
+
+## 8. Open decisions
+
+| #   | Decision                                                                                                                                                                                                                                                                             | Owner       | Blocks                   |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------- | ------------------------ |
+| 1   | Public PR vs. private disclosure for the three security fixes in §3. No `SECURITY.md` exists; check whether GitHub private vulnerability reporting is enabled on `hyperdxio/hyperdx`, and fall back to Discord DM to a maintainer if not.                                            | Author      | Pushing anything from §3 |
+| 2   | Whether ClickStack already ships or plans RBAC. The design cites ClickHouse's ClickStack RBAC docs, and ClickStack is HyperDX under ClickHouse ownership. If upstream already has a plan, the proposal changes from "here is a feature" to "here is an implementation of your plan." | Author      | The proposal's framing   |
+| 3   | Final slice count. Seven is derived from the code's own constraints, but maintainers may prefer fewer, larger PRs or a different boundary. The proposal asks this explicitly.                                                                                                        | Maintainers | Executing the split      |
+
+Decision 1 is the only one that blocks work that can start today.

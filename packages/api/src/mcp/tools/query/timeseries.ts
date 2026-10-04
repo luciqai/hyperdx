@@ -78,6 +78,7 @@ export function registerTimeseries({ context, registerTool }: ToolRegistrar) {
   registerTool(
     'clickstack_timeseries',
     {
+      permission: 'sources:read',
       title: 'Time-Series Chart',
       annotations: { readOnlyHint: true },
       description:

@@ -32,6 +32,7 @@ export function registerPatchDashboard({
   registerTool(
     'clickstack_patch_dashboard',
     {
+      permission: 'dashboards:manage',
       title: 'Patch Dashboard',
       annotations: { destructiveHint: true },
       description:

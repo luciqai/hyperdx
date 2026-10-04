@@ -2,7 +2,11 @@ import fs from 'fs';
 import path from 'path';
 import swaggerJsdoc from 'swagger-jsdoc';
 
-// eslint-disable-next-line no-restricted-imports -- run via ts-node without tsconfig-paths, so @/ does not resolve here
+// Relative rather than `@/` for this entry import, but the script is now run
+// with `-r tsconfig-paths/register`: `swagger.ts` pulls in the RBAC middleware
+// (for `noPermissionRequired` on the docs route), and that transitively imports
+// `@/config` and `@/utils/*`, which cannot resolve without the hook.
+// eslint-disable-next-line no-restricted-imports
 import { swaggerOptions } from '../src/utils/swagger';
 
 const specs = swaggerJsdoc(swaggerOptions);

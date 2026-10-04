@@ -6,6 +6,7 @@ import {
   deleteWebhook,
   updateWebhook,
 } from '@/controllers/webhook';
+import { requirePermission } from '@/middleware/rbac';
 import { WebhookDocument } from '@/models/webhook';
 import Webhook from '@/models/webhook';
 import { processRequestWithEnhancedErrors as validateRequest } from '@/utils/enhancedErrors';
@@ -328,6 +329,7 @@ const router = express.Router();
  */
 router.get(
   '/',
+  requirePermission('webhooks', 'read'),
   validateRequest({ query: paginationQuerySchema }),
   async (req, res, next) => {
     try {
@@ -475,6 +477,7 @@ router.get(
  */
 router.post(
   '/',
+  requirePermission('webhooks', 'manage'),
   validateRequest({ body: externalWebhookCreateSchema }),
   async (req, res, next) => {
     try {
@@ -582,6 +585,7 @@ router.post(
  */
 router.put(
   '/:id',
+  requirePermission('webhooks', 'manage'),
   validateRequest({
     params: z.object({ id: objectIdSchema }),
     body: externalWebhookCreateSchema,
@@ -687,6 +691,7 @@ router.put(
  */
 router.delete(
   '/:id',
+  requirePermission('webhooks', 'manage'),
   validateRequest({ params: z.object({ id: objectIdSchema }) }),
   async (req, res, next) => {
     try {

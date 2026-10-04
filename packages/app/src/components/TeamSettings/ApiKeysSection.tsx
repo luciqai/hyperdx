@@ -3,6 +3,7 @@ import { notifications } from '@mantine/notifications';
 
 import api from '@/api';
 import { RevealSnippet } from '@/components/RevealSnippet/RevealSnippet';
+import { useMyPermissions } from '@/hooks/useMyPermissions';
 import { useConfirm } from '@/useConfirm';
 
 // The reveal Input fills its container, so cap its width here at the parent.
@@ -36,7 +37,8 @@ export default function ApiKeysSection() {
   const rotateTeamApiKey = api.useRotateTeamApiKey();
   const rotatePersonalAccessKey = api.useRotatePersonalAccessKey();
   const confirm = useConfirm();
-  const hasAdminAccess = true;
+  // PATCH /team/apiKey is requireAdmin(); rotation is a hard capability.
+  const { isAdmin: hasAdminAccess } = useMyPermissions();
 
   // `confirm` resolves exactly once, so a double click on its Confirm button
   // during the modal's exit transition cannot fire a second rotation.

@@ -142,6 +142,7 @@ export function registerEventDeltas({ context, registerTool }: ToolRegistrar) {
   registerTool(
     'clickstack_event_deltas',
     {
+      permission: 'sources:read',
       title: 'Compare Events: Target vs Baseline',
       annotations: { readOnlyHint: true },
       description:

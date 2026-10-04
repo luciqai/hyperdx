@@ -463,6 +463,7 @@ export function registerDescribeSource({
   registerTool(
     'clickstack_describe_source',
     {
+      permission: 'sources:read',
       title: 'Describe Source Schema',
       annotations: { readOnlyHint: true },
       description:

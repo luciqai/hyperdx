@@ -20,6 +20,7 @@ jest.mock('@/controllers/connection', () => ({}));
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import mongoose from 'mongoose';
 
+import { MCP_TEST_ADMIN_ROLE } from '@/mcp/__tests__/mcpTestUtils';
 import { registerSql } from '@/mcp/tools/query/sql';
 import type { McpContext, RegisterToolFn, ToolResult } from '@/mcp/tools/types';
 
@@ -34,7 +35,11 @@ function buildHandler(): Handler {
   const registerTool: RegisterToolFn = (_name, _config, handler) => {
     captured = handler;
   };
-  const context: McpContext = { teamId: 'team-1', userId: 'user-1' };
+  const context: McpContext = {
+    teamId: 'team-1',
+    userId: 'user-1',
+    role: MCP_TEST_ADMIN_ROLE,
+  };
   const server = new McpServer({ name: 'test', version: '0.0.0' });
   registerSql({ server, context, registerTool });
   if (!captured) throw new Error('handler was not registered');

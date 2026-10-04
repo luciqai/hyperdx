@@ -27,6 +27,7 @@ import {
   validateAlertInput,
 } from '@/controllers/alerts';
 import { alertsPageQuerySchema, getAlertsPage } from '@/controllers/alertsPage';
+import { requirePermission } from '@/middleware/rbac';
 import { AlertSource, getAlertChannels } from '@/models/alert';
 import { IAlertHistory } from '@/models/alertHistory';
 import { resolveAlertDisplayFields } from '@/utils/alerts';
@@ -126,6 +127,7 @@ const formatAlertResponse = (
 type AlertsExpRes = express.Response<AlertsApiResponse>;
 router.get(
   '/',
+  requirePermission('alerts', 'read'),
   processRequest({ query: alertsPageQuerySchema }),
   async (req, res: AlertsExpRes, next) => {
     try {
@@ -169,6 +171,7 @@ router.get(
 type AlertExpRes = express.Response<AlertApiResponse>;
 router.get(
   '/:id',
+  requirePermission('alerts', 'read'),
   validateRequest({
     params: z.object({
       id: objectIdSchema,
@@ -218,6 +221,7 @@ const EVALUATIONS_LIMIT = 200;
 type AlertEvaluationsExpRes = express.Response<AlertEvaluationsApiResponse>;
 router.get(
   '/:id/evaluations',
+  requirePermission('alerts', 'read'),
   processRequest({
     params: z.object({ id: objectIdSchema }),
     query: z
@@ -293,6 +297,7 @@ router.get(
 type AlertHistoryRangeExpRes = express.Response<AlertHistoryRangeApiResponse>;
 router.get(
   '/:id/history',
+  requirePermission('alerts', 'read'),
   processRequest({
     params: z.object({ id: objectIdSchema }),
     query: z
@@ -341,6 +346,7 @@ router.get(
 
 router.post(
   '/',
+  requirePermission('alerts', 'manage'),
   processRequest({ body: internalAlertSchema }),
   async (req, res, next) => {
     const teamId = req.user?.team;
@@ -362,6 +368,7 @@ router.post(
 
 router.put(
   '/:id',
+  requirePermission('alerts', 'manage'),
   processRequest({
     body: internalAlertSchema,
     params: z.object({
@@ -396,6 +403,7 @@ router.put(
 
 router.post(
   '/:id/silenced',
+  requirePermission('alerts', 'manage'),
   validateRequest({
     body: z.object({
       mutedUntil: z
@@ -436,6 +444,7 @@ router.post(
 
 router.delete(
   '/:id/silenced',
+  requirePermission('alerts', 'manage'),
   validateRequest({
     params: z.object({
       id: objectIdSchema,
@@ -464,6 +473,7 @@ router.delete(
 
 router.delete(
   '/:id',
+  requirePermission('alerts', 'manage'),
   validateRequest({
     params: z.object({
       id: objectIdSchema,

@@ -21,7 +21,12 @@ import Connection from '@/models/connection';
 import { Source } from '@/models/source';
 import Team from '@/models/team';
 
-import { callTool, createTestClient, getFirstText } from './mcpTestUtils';
+import {
+  callTool,
+  createTestClient,
+  getFirstText,
+  MCP_TEST_ADMIN_ROLE,
+} from './mcpTestUtils';
 
 describe('MCP Source Tools', () => {
   const server = getServer();
@@ -91,6 +96,7 @@ describe('MCP Source Tools', () => {
     const context: McpContext = {
       teamId: team._id.toString(),
       userId: user._id.toString(),
+      role: MCP_TEST_ADMIN_ROLE,
     };
     client = await createTestClient(context);
   });
@@ -177,6 +183,7 @@ describe('MCP Source Tools', () => {
       const context2: McpContext = {
         teamId: result2.team._id.toString(),
         userId: result2.user._id.toString(),
+        role: MCP_TEST_ADMIN_ROLE,
       };
       const client2 = await createTestClient(context2);
 

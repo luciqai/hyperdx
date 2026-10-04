@@ -15,26 +15,32 @@ import {
   updateSavedSearch,
 } from '@/controllers/savedSearch';
 import { getNonNullUserWithTeam } from '@/middleware/auth';
+import { requirePermission } from '@/middleware/rbac';
 import { objectIdSchema } from '@/utils/zod';
 
 const router = express.Router();
 
 type SavedSearchListExpRes = express.Response<SavedSearchListApiResponse[]>;
 
-router.get('/', async (req, res: SavedSearchListExpRes, next) => {
-  try {
-    const { teamId } = getNonNullUserWithTeam(req);
+router.get(
+  '/',
+  requirePermission('savedSearches', 'read'),
+  async (req, res: SavedSearchListExpRes, next) => {
+    try {
+      const { teamId } = getNonNullUserWithTeam(req);
 
-    const savedSearches = await getSavedSearches(teamId.toString());
+      const savedSearches = await getSavedSearches(teamId.toString());
 
-    return res.json(savedSearches);
-  } catch (e) {
-    next(e);
-  }
-});
+      return res.json(savedSearches);
+    } catch (e) {
+      next(e);
+    }
+  },
+);
 
 router.post(
   '/',
+  requirePermission('savedSearches', 'manage'),
   validateRequest({
     body: SavedSearchSchema.omit({ id: true }).extend({
       name: z.string().trim().min(1),
@@ -59,6 +65,7 @@ router.post(
 
 router.patch(
   '/:id',
+  requirePermission('savedSearches', 'manage'),
   validateRequest({
     body: SavedSearchSchema.partial().extend({
       name: z.string().trim().min(1).optional(),
@@ -108,6 +115,7 @@ router.patch(
 
 router.delete(
   '/:id',
+  requirePermission('savedSearches', 'manage'),
   validateRequest({ params: z.object({ id: objectIdSchema }) }),
   async (req, res, next) => {
     try {

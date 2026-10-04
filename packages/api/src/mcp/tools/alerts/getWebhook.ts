@@ -12,6 +12,7 @@ export function registerGetWebhook({
   registerTool(
     'clickstack_get_webhook',
     {
+      permission: 'webhooks:read',
       title: 'List Webhooks',
       annotations: { readOnlyHint: true },
       description:

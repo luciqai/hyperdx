@@ -17,11 +17,16 @@ import {
   TimeSeriesTagsQueryArgs,
 } from '@/controllers/timeseriesEngine';
 import { getNonNullUserWithTeam } from '@/middleware/auth';
+import { requirePermission } from '@/middleware/rbac';
 import { getCounter, getHistogram } from '@/utils/instrumentation';
 import logger from '@/utils/logger';
 import { objectIdSchema, stringListQueryParam } from '@/utils/zod';
 
 const router = express.Router();
+
+// SEC-2. This was previously exempted from the RBAC coverage check as a
+// query path; the PromQL path was reachable by a role holding sources: none.
+const queryPathGate = () => requirePermission('sources', 'read');
 
 // The proxy handlers catch their own errors and return Prometheus-shaped 4xx
 // bodies, so failures never reach the API error middleware. Track them here
@@ -578,8 +583,8 @@ const queryRangeHandler: express.RequestHandler = async (req, res) => {
     });
   }
 };
-router.get('/query_range', queryRangeHandler);
-router.post('/query_range', queryRangeHandler);
+router.get('/query_range', queryPathGate(), queryRangeHandler);
+router.post('/query_range', queryPathGate(), queryRangeHandler);
 
 // --------------------------
 // GET|POST /query
@@ -688,8 +693,8 @@ const queryHandler: express.RequestHandler = async (req, res) => {
     });
   }
 };
-router.get('/query', queryHandler);
-router.post('/query', queryHandler);
+router.get('/query', queryPathGate(), queryHandler);
+router.post('/query', queryPathGate(), queryHandler);
 
 /**
  * Resolve the exemplar window a /query_exemplars request should be proxied with.
@@ -828,8 +833,8 @@ const queryExemplarsHandler: express.RequestHandler = async (req, res) => {
     });
   }
 };
-router.get('/query_exemplars', queryExemplarsHandler);
-router.post('/query_exemplars', queryExemplarsHandler);
+router.get('/query_exemplars', queryPathGate(), queryExemplarsHandler);
+router.post('/query_exemplars', queryPathGate(), queryExemplarsHandler);
 
 // --------------------------
 // GET /labels, GET /label/:name/values
@@ -1029,7 +1034,7 @@ async function handleLabelLookup(
   }
 }
 
-router.get('/labels', (req, res) =>
+router.get('/labels', queryPathGate(), (req, res) =>
   handleLabelLookup(req, res, {
     subject: 'labels',
     proxyPath: '/api/v1/labels',
@@ -1037,7 +1042,7 @@ router.get('/labels', (req, res) =>
   }),
 );
 
-router.get('/label/:name/values', (req, res) => {
+router.get('/label/:name/values', queryPathGate(), (req, res) => {
   const labelName = req.params.name;
   if (!PROMETHEUS_LABEL_NAME.test(labelName)) {
     return res.status(400).json({

@@ -182,6 +182,8 @@ export function registerQueryTiles({
     {
       title: 'Query Multiple Dashboard Tiles',
       annotations: { readOnlyHint: true },
+      // The batch form of clickstack_query_tile, which declares the same.
+      permission: 'dashboards:read',
       description:
         'Run the queries for many tiles of a dashboard in ONE call and return a ' +
         'compact per-tile success/failure summary. This is the efficient way to ' +

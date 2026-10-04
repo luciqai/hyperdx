@@ -10,23 +10,29 @@ import {
   updateConnection,
 } from '@/controllers/connection';
 import { getNonNullUserWithTeam } from '@/middleware/auth';
+import { requirePermission } from '@/middleware/rbac';
 
 const router = express.Router();
 
-router.get('/', async (req, res, next) => {
-  try {
-    const { teamId } = getNonNullUserWithTeam(req);
+router.get(
+  '/',
+  requirePermission('connections', 'read'),
+  async (req, res, next) => {
+    try {
+      const { teamId } = getNonNullUserWithTeam(req);
 
-    const connections = await getConnectionsByTeam(teamId.toString());
+      const connections = await getConnectionsByTeam(teamId.toString());
 
-    res.json(connections.map(c => c.toJSON({ virtuals: true })));
-  } catch (e) {
-    next(e);
-  }
-});
+      res.json(connections.map(c => c.toJSON({ virtuals: true })));
+    } catch (e) {
+      next(e);
+    }
+  },
+);
 
 router.post(
   '/',
+  requirePermission('connections', 'manage'),
   validateRequest({
     body: ConnectionSchema.omit({ id: true }),
   }),
@@ -60,6 +66,7 @@ router.post(
 
 router.put(
   '/:id',
+  requirePermission('connections', 'manage'),
   validateRequest({
     body: ConnectionSchema,
   }),
@@ -118,16 +125,20 @@ router.put(
   },
 );
 
-router.delete('/:id', async (req, res, next) => {
-  try {
-    const { teamId } = getNonNullUserWithTeam(req);
+router.delete(
+  '/:id',
+  requirePermission('connections', 'manage'),
+  async (req, res, next) => {
+    try {
+      const { teamId } = getNonNullUserWithTeam(req);
 
-    await deleteConnection(teamId.toString(), req.params.id);
+      await deleteConnection(teamId.toString(), req.params.id);
 
-    res.status(200).send();
-  } catch (e) {
-    next(e);
-  }
-});
+      res.status(200).send();
+    } catch (e) {
+      next(e);
+    }
+  },
+);
 
 export default router;

@@ -56,12 +56,12 @@ test.describe('Team Settings Page', { tag: ['@team', '@full-stack'] }, () => {
       ).toBeVisible();
     });
 
-    await test.step('Verify access tab content when available', async () => {
-      if (await teamPage.hasAccessTab()) {
-        await expect(teamPage.accessTab).toBeVisible();
-        await teamPage.openAccessTab();
-        await expect(teamPage.securityPolicies).toBeVisible();
-      }
+    await test.step('Verify access tab content', async () => {
+      // The Access tab is now unconditional — roles always exist. Security
+      // Policies within it remains conditional on configured auth methods.
+      await expect(teamPage.accessTab).toBeVisible();
+      await teamPage.openAccessTab();
+      await expect(teamPage.rbacRoles).toBeVisible();
     });
 
     await test.step('Verify API & Agents tab sections are visible', async () => {

@@ -5,6 +5,7 @@ import { z } from 'zod';
 
 import { parseTimeRange } from '@/mcp/tools/query/helpers';
 import { getNonNullUserWithTeam } from '@/middleware/auth';
+import { requirePermission } from '@/middleware/rbac';
 import { processRequestWithEnhancedErrors as validateRequest } from '@/utils/enhancedErrors';
 import {
   getCounter,
@@ -153,92 +154,145 @@ const CH_USER_INPUT_ERRORS = new Set([
  *           description: Number of rows in this response (not total matching rows).
  */
 
+// Comments let a caller break up the keyword this pattern anchors on:
+// `(SELECT/**/groupArray(name) FROM system.users)` defeated the bare pattern
+// and returned 200 (BUG-9). Strip them before matching.
+const SQL_COMMENT_PATTERN = /\/\*[\s\S]*?\*\/|--[^\n]*/g;
+
 // Rejects semicolons and SELECT subqueries in column expressions.
 // Word-boundary anchor prevents blocking identifiers like "selectId".
 const DISALLOWED_COLUMNS_PATTERN = /;|(?<!\w)SELECT\s/i;
 
-function validateColumnsExpression(value: string): boolean {
+/**
+ * Defence-in-depth, NOT a security boundary.
+ *
+ * This is a denylist, and a denylist over a SQL dialect cannot be complete —
+ * slice C §8.3, as amended. It closes the demonstrated bypasses; the class
+ * stays open until slice B constrains the query path at the database layer
+ * with a restricted ClickHouse user.
+ */
+export function validateColumnsExpression(value: string): boolean {
   if (!value) return true;
-  return !DISALLOWED_COLUMNS_PATTERN.test(value);
+  // Replace with a space, not '': `a/**/;` must not become `a;`-free.
+  const stripped = value.replace(SQL_COMMENT_PATTERN, ' ');
+  return !DISALLOWED_COLUMNS_PATTERN.test(stripped);
 }
 
-const searchRequestSchema = z.object({
-  sourceId: z
-    .string()
-    .min(1, { message: 'sourceId is required' })
-    .refine(val => ObjectId.isValid(val), {
-      message: 'sourceId must be a valid ObjectId',
-    })
-    .describe(
-      'Source ID to query. Call GET /api/v2/sources to list available sources.',
-    ),
-  startTime: z
-    .string()
-    .optional()
-    .describe(
-      'Start of the query window as ISO 8601. Default: 15 minutes ago.',
-    ),
-  endTime: z
-    .string()
-    .optional()
-    .describe('End of the query window as ISO 8601. Default: now.'),
-  where: z
-    .string()
-    .max(8 * 1024)
-    .optional()
-    .default('')
-    .describe(
-      'Row filter in Lucene syntax (default) or SQL (set whereLanguage: "sql"). ' +
-        'Examples: "SeverityText:ERROR", "pipedream.pipeline_name:my-pipeline AND SeverityText:ERROR"',
-    ),
-  whereLanguage: z
-    .enum(['lucene', 'sql'])
-    .optional()
-    .default('lucene')
-    .describe('Language for the where filter. Default: lucene'),
-  select: z
-    .string()
-    .max(4 * 1024)
-    .optional()
-    .default('')
-    .refine(validateColumnsExpression, {
+/**
+ * The `where` half of the BUG-9 guard, shared by every request shape that
+ * carries a `where`/`whereLanguage` pair — the /search request body and the
+ * /charts/series per-series schema. Same predicate, same `path`, same message:
+ * one copy so the two surfaces cannot drift apart.
+ *
+ * Guarded only in SQL mode. In Lucene mode a literal search for "SELECT foo" is
+ * a legitimate query and must not 400.
+ *
+ * Guards for inputs that only one of those shapes has (charts' `field` and
+ * `groupBy`) stay with that shape.
+ */
+export function refineSqlWhere(
+  // `whereLanguage` is widened to `string` rather than a union: /search allows
+  // lucene|sql, chart series also allow promql, and every non-'sql' value takes
+  // the same (unguarded) branch. Narrowing here would only couple this helper
+  // to whichever caller happens to have the shorter list.
+  val: { where?: string; whereLanguage?: string },
+  ctx: z.RefinementCtx,
+): void {
+  if (
+    val.whereLanguage === 'sql' &&
+    !validateColumnsExpression(val.where ?? '')
+  ) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['where'],
       message:
-        'select must not contain semicolons or SELECT subqueries; ' +
-        'use column references, map lookups, or scalar functions only',
-    })
-    .describe(
-      'Comma-separated list of column expressions to return. ' +
-        'When omitted the source default columns are used. ' +
-        'Named attribute columns such as "pipedream.pipeline_name" or "k8s.pod.name" ' +
-        'are automatically rewritten to their materialized equivalents when available.',
-    ),
-  orderBy: z
-    .string()
-    .max(1024)
-    .optional()
-    .describe(
-      'ORDER BY expression. Defaults to the source timestamp expression DESC.',
-    ),
-  maxResults: z
-    .number()
-    .int()
-    .min(1)
-    .max(2000)
-    .optional()
-    .default(100)
-    .describe('Maximum rows to return (1-2000). Default: 100.'),
-  offset: z
-    .number()
-    .int()
-    .min(0)
-    .max(10_000)
-    .optional()
-    .default(0)
-    .describe(
-      'Number of rows to skip for pagination (0-10000). Default: 0. ' +
-        'Prefer timestamp-cursor pagination for large datasets.',
-    ),
-});
+        'where must not contain semicolons or subqueries when whereLanguage is "sql"',
+    });
+  }
+}
+
+// Exported for testing only (schema-level guard wiring); not part of the
+// public module surface otherwise.
+export const searchRequestSchema = z
+  .object({
+    sourceId: z
+      .string()
+      .min(1, { message: 'sourceId is required' })
+      .refine(val => ObjectId.isValid(val), {
+        message: 'sourceId must be a valid ObjectId',
+      })
+      .describe(
+        'Source ID to query. Call GET /api/v2/sources to list available sources.',
+      ),
+    startTime: z
+      .string()
+      .optional()
+      .describe(
+        'Start of the query window as ISO 8601. Default: 15 minutes ago.',
+      ),
+    endTime: z
+      .string()
+      .optional()
+      .describe('End of the query window as ISO 8601. Default: now.'),
+    where: z
+      .string()
+      .max(8 * 1024)
+      .optional()
+      .default('')
+      .describe(
+        'Row filter in Lucene syntax (default) or SQL (set whereLanguage: "sql"). ' +
+          'Examples: "SeverityText:ERROR", "pipedream.pipeline_name:my-pipeline AND SeverityText:ERROR"',
+      ),
+    whereLanguage: z
+      .enum(['lucene', 'sql'])
+      .optional()
+      .default('lucene')
+      .describe('Language for the where filter. Default: lucene'),
+    select: z
+      .string()
+      .max(4 * 1024)
+      .optional()
+      .default('')
+      .refine(validateColumnsExpression, {
+        message:
+          'select must not contain semicolons or SELECT subqueries; ' +
+          'use column references, map lookups, or scalar functions only',
+      })
+      .describe(
+        'Comma-separated list of column expressions to return. ' +
+          'When omitted the source default columns are used. ' +
+          'Named attribute columns such as "pipedream.pipeline_name" or "k8s.pod.name" ' +
+          'are automatically rewritten to their materialized equivalents when available.',
+      ),
+    orderBy: z
+      .string()
+      .max(1024)
+      .optional()
+      .describe(
+        'ORDER BY expression. Defaults to the source timestamp expression DESC.',
+      ),
+    maxResults: z
+      .number()
+      .int()
+      .min(1)
+      .max(2000)
+      .optional()
+      .default(100)
+      .describe('Maximum rows to return (1-2000). Default: 100.'),
+    offset: z
+      .number()
+      .int()
+      .min(0)
+      .max(10_000)
+      .optional()
+      .default(0)
+      .describe(
+        'Number of rows to skip for pagination (0-10000). Default: 0. ' +
+          'Prefer timestamp-cursor pagination for large datasets.',
+      ),
+  })
+  // `where` was unguarded entirely (BUG-9) — see `refineSqlWhere` above.
+  .superRefine(refineSqlWhere);
 
 /**
  * @openapi
@@ -363,6 +417,7 @@ const router = express.Router();
 
 router.post(
   '/',
+  requirePermission('sources', 'read'),
   validateRequest({ body: searchRequestSchema }),
   async (req, res) => {
     try {

@@ -20,6 +20,7 @@ export function registerSearchDashboards({
   registerTool(
     'clickstack_search_dashboards',
     {
+      permission: 'dashboards:read',
       title: 'Search Dashboards',
       annotations: { readOnlyHint: true },
       description:

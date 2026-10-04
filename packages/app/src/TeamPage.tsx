@@ -24,12 +24,15 @@ import {
   IconUsers,
 } from '@tabler/icons-react';
 
+import { useMyPermissions } from '@/hooks/useMyPermissions';
+
 import { PageHeader } from './components/PageHeader';
 import ApiKeysSection from './components/TeamSettings/ApiKeysSection';
 import ConnectionsSection from './components/TeamSettings/ConnectionsSection';
 import IacMigrationSection from './components/TeamSettings/IacMigrationSection';
 import IntegrationsSection from './components/TeamSettings/IntegrationsSection';
 import McpServerSection from './components/TeamSettings/McpServerSection';
+import RbacRolesSection from './components/TeamSettings/RbacRolesSection';
 import SecurityPoliciesSection from './components/TeamSettings/SecurityPoliciesSection';
 import SourcesSection from './components/TeamSettings/SourcesSection';
 import TeamMembersSection from './components/TeamSettings/TeamMembersSection';
@@ -80,7 +83,15 @@ export default function TeamPage() {
   const allowedAuthMethods = team?.allowedAuthMethods ?? [];
   const hasAllowedAuthMethods = allowedAuthMethods.length > 0;
 
-  const hasAdminAccess = true;
+  // Gate each section on the permission its own data needs. A section whose
+  // read permission is missing would otherwise render and 403 on load, which
+  // is worse than not offering it: `connections: none` is the default for both
+  // Member and ReadOnly, so that was every non-admin's Team Settings.
+  const {
+    isAdmin: hasAdminAccess,
+    can,
+    isLoading: isLoadingPermissions,
+  } = useMyPermissions();
   const [isEditingTeamName, setIsEditingTeamName] = useState(false);
   const form = useForm<{ name: string }>({
     defaultValues: { name: team?.name },
@@ -111,52 +122,72 @@ export default function TeamPage() {
     [refetchTeam, setTeamName],
   );
 
-  const tabs: TeamTab[] = [
-    {
-      value: 'data',
-      label: 'Data',
-      icon: <IconDatabase size={16} />,
-      sections: [
-        {
-          id: 'team-data-sources',
-          content: () => <SourcesSection />,
-        },
-        {
-          id: 'team-data-connections',
-          content: () => <ConnectionsSection />,
-        },
-      ],
-    },
-    {
-      value: 'team',
-      label: 'Members',
-      icon: <IconUsers size={16} />,
-      sections: [
-        {
-          id: 'team-members',
-          content: () => <TeamMembersSection />,
-        },
-      ],
-    },
+  const accessSections: TeamTab['sections'] = [
+    ...(hasAdminAccess
+      ? [{ id: 'team-access-roles', content: () => <RbacRolesSection /> }]
+      : []),
     ...(hasAllowedAuthMethods
+      ? [
+          {
+            id: 'team-access-security-policies',
+            content: () => (
+              <SecurityPoliciesSection
+                allowedAuthMethods={allowedAuthMethods}
+              />
+            ),
+          },
+        ]
+      : []),
+  ];
+
+  const dataSections: TeamTab['sections'] = [
+    ...(can('sources', 'read')
+      ? [{ id: 'team-data-sources', content: () => <SourcesSection /> }]
+      : []),
+    ...(can('connections', 'read')
+      ? [{ id: 'team-data-connections', content: () => <ConnectionsSection /> }]
+      : []),
+  ];
+
+  const tabs: TeamTab[] = [
+    ...(dataSections.length > 0
+      ? [
+          {
+            value: 'data',
+            label: 'Data',
+            icon: <IconDatabase size={16} />,
+            sections: dataSections,
+          },
+        ]
+      : []),
+    // GET /team/members requires users:read, which ReadOnly does not have.
+    ...(can('users', 'read')
+      ? [
+          {
+            value: 'team',
+            label: 'Members',
+            icon: <IconUsers size={16} />,
+            sections: [
+              { id: 'team-members', content: () => <TeamMembersSection /> },
+            ],
+          },
+        ]
+      : []),
+    // The Access tab appears whenever it has something to show. Roles are
+    // admin-only and Security Policies needs configured auth methods, so a
+    // non-admin on a team without them would otherwise land on a blank tab —
+    // the "advertises something you can't have" failure the design forbids.
+    ...(accessSections.length > 0
       ? [
           {
             value: 'access',
             label: 'Access',
             icon: <IconShieldLock size={16} />,
-            sections: [
-              {
-                id: 'team-access-security-policies',
-                content: () => (
-                  <SecurityPoliciesSection
-                    allowedAuthMethods={allowedAuthMethods}
-                  />
-                ),
-              },
-            ],
+            sections: accessSections,
           },
         ]
       : []),
+    // Both sections read the team document (team:read), which every role has.
     {
       value: 'api-agents',
       label: 'API & Agents',
@@ -170,7 +201,10 @@ export default function TeamPage() {
           id: 'team-api-agents-mcp-server',
           content: () => <McpServerSection />,
         },
-        ...(IS_IAC_EXPORT_ENABLED
+        // GET /iac/import-manifest enumerates connections, so it is gated on
+        // connections:read. Offering the section without it would render a
+        // panel that 403s on load.
+        ...(IS_IAC_EXPORT_ENABLED && can('connections', 'read')
           ? [
               {
                 id: 'team-api-agents-iac',
@@ -182,17 +216,22 @@ export default function TeamPage() {
           : []),
       ],
     },
-    {
-      value: 'integrations',
-      label: 'Integrations',
-      icon: <IconPlug size={16} />,
-      sections: [
-        {
-          id: 'team-integrations-webhooks',
-          content: () => <IntegrationsSection />,
-        },
-      ],
-    },
+    // GET /webhooks requires webhooks:read; ReadOnly has webhooks: none.
+    ...(can('webhooks', 'read')
+      ? [
+          {
+            value: 'integrations',
+            label: 'Integrations',
+            icon: <IconPlug size={16} />,
+            sections: [
+              {
+                id: 'team-integrations-webhooks',
+                content: () => <IntegrationsSection />,
+              },
+            ],
+          },
+        ]
+      : []),
     {
       value: 'advanced',
       label: 'Query Settings',
@@ -318,7 +357,9 @@ export default function TeamPage() {
               <span data-testid="team-name-display">
                 {team?.name || 'My team'}
               </span>
-              {hasAdminAccess && (
+              {/* PATCH /team/name is team:manage, which Member and ReadOnly
+                  do not hold — gate on the actual permission, not on admin. */}
+              {can('team', 'manage') && (
                 <Button
                   data-testid="team-name-change-button"
                   size="xs"
@@ -339,12 +380,12 @@ export default function TeamPage() {
       </PageHeader>
       <div>
         <Container size="lg" py="md">
-          {isLoading && (
+          {(isLoading || isLoadingPermissions) && (
             <Center mt="xl">
               <Loader color="dimmed" />
             </Center>
           )}
-          {!isLoading && team != null && (
+          {!isLoading && !isLoadingPermissions && team != null && (
             <Tabs value={activeTab} onChange={handleTabChange}>
               <Tabs.List>
                 {tabs.map(tab => (
