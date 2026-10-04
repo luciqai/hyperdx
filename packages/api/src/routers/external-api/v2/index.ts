@@ -1,5 +1,6 @@
 import express from 'express';
 
+import { EXTERNAL_API_RATE_LIMIT_MAX } from '@/config';
 import { validateUserAccessKey } from '@/middleware/auth';
 import { noPermissionRequired } from '@/middleware/rbac';
 import alertsRouter from '@/routers/external-api/v2/alerts';
@@ -21,7 +22,7 @@ const router = express.Router();
 // Runs AFTER validateUserAccessKey so it can key on the authenticated user.
 const defaultRateLimiter = rateLimiter({
   windowMs: 60 * 1000, // 1 minute
-  max: 100, // Limit each user to 100 requests per `window`
+  max: EXTERNAL_API_RATE_LIMIT_MAX, // Limit each API key to this many requests per `window`
   standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
   legacyHeaders: false, // Disable the `X-RateLimit-*` headers
   keyGenerator: rateLimiterKeyGenerator,

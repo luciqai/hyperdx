@@ -2,35 +2,45 @@ import { useCallback, useMemo, useState } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
 import Router from 'next/router';
-import { useQueryState } from 'nuqs';
 import {
-  ActionIcon,
+  parseAsArrayOf,
+  parseAsString,
+  parseAsStringEnum,
+  useQueryState,
+} from 'nuqs';
+import {
   Anchor,
   Button,
   Container,
   Flex,
   Group,
   Menu,
-  Select,
   SimpleGrid,
-  Stack,
+  Skeleton,
   Table,
   Text,
-  TextInput,
 } from '@mantine/core';
-import { useLocalStorage } from '@mantine/hooks';
+import { useLocalStorage, useMounted } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
 import {
   IconChevronDown,
   IconDeviceFloppy,
   IconLayoutGrid,
-  IconList,
   IconPlus,
-  IconSearch,
   IconUpload,
 } from '@tabler/icons-react';
 
+import api from '@/api';
 import { AlertStatusIcon } from '@/components/AlertStatusIcon';
+import { DashboardsListToolbar } from '@/components/Dashboards/DashboardsListToolbar';
+import {
+  DASHBOARD_SORT_VALUES,
+  DASHBOARD_TAB_VALUES,
+  type DashboardSort,
+  type DashboardTab,
+  DEFAULT_DASHBOARD_SORT,
+  filterAndSortDashboards,
+} from '@/components/Dashboards/dashboardsListUtils';
 import EmptyState from '@/components/EmptyState';
 import { FavoriteButton } from '@/components/FavoriteButton';
 import { ListingCard } from '@/components/ListingCard';
@@ -48,10 +58,16 @@ import { useMyPermissions } from '@/hooks/useMyPermissions';
 import { withAppNav } from '@/layout';
 import { useBrandDisplayName } from '@/theme/ThemeProvider';
 import { useConfirm } from '@/useConfirm';
-import { groupByTags } from '@/utils/groupByTags';
 
 function getDashboardAlerts(tiles: Dashboard['tiles']) {
   return tiles.map(t => t.config.alert).filter(a => a != null);
+}
+
+function emptyStateTitle(tab: DashboardTab, hasFilters: boolean): string {
+  if (hasFilters) return 'No matching dashboards yet';
+  if (tab === 'favorites') return 'No favorite dashboards yet';
+  if (tab === 'mine') return 'No dashboards created by you yet';
+  return 'No dashboards yet';
 }
 
 const PRESET_DASHBOARDS = [
@@ -84,6 +100,7 @@ const PRESET_DASHBOARDS = [
 export default function DashboardsListPage() {
   const brandName = useBrandDisplayName();
   const { data: dashboards, isLoading, isError } = useDashboards();
+  const { data: me, isPending: isMePending } = api.useMe();
   const confirm = useConfirm();
   const createDashboard = useCreateDashboard();
   const deleteDashboard = useDeleteDashboard();
@@ -93,54 +110,69 @@ export default function DashboardsListPage() {
   const { can } = useMyPermissions();
   const canManageDashboards = can('dashboards', 'manage');
   const [search, setSearch] = useState('');
-  const [tagFilter, setTagFilter] = useQueryState('tag');
+  const [tagFilter, setTagFilter] = useQueryState(
+    'tag',
+    parseAsArrayOf(parseAsString).withDefault([]),
+  );
+  const [requestedTab, setTab] = useQueryState(
+    'tab',
+    parseAsStringEnum<DashboardTab>(DASHBOARD_TAB_VALUES).withDefault('all'),
+  );
+  const [sort, setSort] = useQueryState(
+    'sort',
+    parseAsStringEnum<DashboardSort>(DASHBOARD_SORT_VALUES).withDefault(
+      DEFAULT_DASHBOARD_SORT,
+    ),
+  );
   const [viewMode, setViewMode] = useLocalStorage<'grid' | 'list'>({
     key: 'dashboardsViewMode',
     defaultValue: 'grid',
   });
 
-  const { data: favorites } = useFavorites();
-  const favoritedDashboards = useMemo(() => {
-    if (!dashboards || !favorites?.length) return [];
+  const {
+    data: favorites,
+    isPending: isFavoritesPending,
+    isError: isFavoritesError,
+  } = useFavorites();
+  const mounted = useMounted();
 
-    const favoritedDashboardIds = new Set(
-      favorites
-        .filter(f => f.resourceType === 'dashboard')
-        .map(f => f.resourceId),
-    );
+  // Treat an in-flight `me` as eligible so the tab does not flip to All and
+  // back while the request settles.
+  const canFilterByCreator = isMePending || me?.email != null;
+  // Local mode has no user, so a shared ?tab=mine link would otherwise select
+  // a tab the toolbar never renders and filter every dashboard away.
+  const tab =
+    requestedTab === 'mine' && !canFilterByCreator ? 'all' : requestedTab;
+  // All does not read the current user or favorites, so a slow favorites
+  // request should not hold the whole list.
+  const isTabDataPending =
+    (tab === 'mine' && isMePending) ||
+    (tab === 'favorites' && isFavoritesPending);
 
-    return dashboards
-      .filter(d => favoritedDashboardIds.has(d.id))
-      .sort((a, b) => a.name.localeCompare(b.name));
-  }, [dashboards, favorites]);
+  const favoriteIds = useMemo(
+    () =>
+      new Set(
+        (favorites ?? [])
+          .filter(f => f.resourceType === 'dashboard')
+          .map(f => f.resourceId),
+      ),
+    [favorites],
+  );
 
-  const allTags = useMemo(() => {
-    if (!dashboards) return [];
-    const tags = new Set<string>();
-    dashboards.forEach(d => d.tags.forEach(t => tags.add(t)));
-    return Array.from(tags).sort();
-  }, [dashboards]);
+  const hasTags = (dashboards ?? []).some(d => d.tags.length > 0);
 
-  const filteredDashboards = useMemo(() => {
-    if (!dashboards) return [];
-    let result = dashboards;
-    if (tagFilter) {
-      result = result.filter(d => d.tags.includes(tagFilter));
-    }
-    if (search.trim()) {
-      const q = search.toLowerCase();
-      result = result.filter(
-        d =>
-          d.name.toLowerCase().includes(q) ||
-          d.tags.some(t => t.toLowerCase().includes(q)),
-      );
-    }
-    return result.slice().sort((a, b) => a.name.localeCompare(b.name));
-  }, [dashboards, search, tagFilter]);
-
-  const tagGroups = useMemo(
-    () => groupByTags(filteredDashboards, tagFilter),
-    [filteredDashboards, tagFilter],
+  const visibleDashboards = useMemo(
+    () =>
+      filterAndSortDashboards({
+        dashboards: dashboards ?? [],
+        tab,
+        favoriteIds,
+        currentUserEmail: me?.email,
+        tagFilter,
+        search,
+        sort,
+      }),
+    [dashboards, tab, favoriteIds, me?.email, tagFilter, search, sort],
   );
 
   const handleCreate = useCallback(() => {
@@ -194,7 +226,60 @@ export default function DashboardsListPage() {
       <Head>
         <title>Dashboards - {brandName}</title>
       </Head>
-      <PageHeader title="Dashboards" />
+      <PageHeader
+        title="Dashboards"
+        actions={
+          canManageDashboards ? (
+            <Group gap="xs" align="center">
+              <Button
+                component={Link}
+                href="/dashboards/import"
+                variant="secondary"
+                leftSection={<IconUpload size={16} />}
+                data-testid="import-dashboard-button"
+              >
+                Import
+              </Button>
+              <Menu position="bottom-end" withinPortal>
+                <Menu.Target>
+                  <Button
+                    variant="primary"
+                    leftSection={<IconPlus size={16} />}
+                    rightSection={<IconChevronDown size={14} />}
+                    loading={createDashboard.isPending}
+                    data-testid="new-dashboard-button"
+                  >
+                    New Dashboard
+                  </Button>
+                </Menu.Target>
+                <Menu.Dropdown>
+                  <Menu.Item
+                    leftSection={<IconDeviceFloppy size={14} />}
+                    onClick={handleCreate}
+                    data-testid="create-dashboard-button"
+                  >
+                    Saved Dashboard
+                    <Text size="xs" c="dimmed">
+                      Persisted for your team
+                    </Text>
+                  </Menu.Item>
+                  <Menu.Item
+                    component={Link}
+                    href="/dashboards"
+                    leftSection={<IconPlus size={14} />}
+                    data-testid="temp-dashboard-button"
+                  >
+                    Temporary Dashboard
+                    <Text size="xs" c="dimmed">
+                      Lives in your browser only
+                    </Text>
+                  </Menu.Item>
+                </Menu.Dropdown>
+              </Menu>
+            </Group>
+          ) : undefined
+        }
+      />
       <Container
         maw={1200}
         py="lg"
@@ -216,145 +301,39 @@ export default function DashboardsListPage() {
           </Anchor>
         </Text>
 
-        {favoritedDashboards.length > 0 && (
+        {mounted ? (
+          <DashboardsListToolbar
+            tab={tab}
+            onTabChange={setTab}
+            canFilterByCreator={canFilterByCreator}
+            search={search}
+            onSearchChange={setSearch}
+            hasTags={hasTags}
+            tagFilter={tagFilter}
+            onTagFilterChange={tags => setTagFilter(tags.length ? tags : null)}
+            sort={sort}
+            onSortChange={setSort}
+            viewMode={viewMode}
+            onViewModeChange={setViewMode}
+          />
+        ) : (
+          // nuqs applies URL values on the first client render, which the
+          // prerendered HTML does not have.
           <>
-            <Text fw={500} size="sm" c="dimmed" mb="sm">
-              Favorites
-            </Text>
-            <SimpleGrid
-              cols={{ base: 1, sm: 2, md: 3 }}
-              mb="xl"
-              data-testid="favorite-dashboards-section"
-            >
-              {favoritedDashboards.map(d => (
-                <ListingCard
-                  key={d.id}
-                  name={d.name}
-                  href={`/dashboards/${d.id}`}
-                  tags={d.tags}
-                  description={`${d.tiles.length} ${d.tiles.length === 1 ? 'tile' : 'tiles'}`}
-                  onDelete={
-                    canManageDashboards ? () => handleDelete(d.id) : undefined
-                  }
-                  statusIcon={
-                    <AlertStatusIcon alerts={getDashboardAlerts(d.tiles)} />
-                  }
-                  resourceId={d.id}
-                  resourceType="dashboard"
-                  updatedAt={d.updatedAt}
-                  updatedBy={d.updatedBy?.name || d.updatedBy?.email}
-                />
-              ))}
-            </SimpleGrid>
+            <Skeleton h={36} mb="md" />
+            <Skeleton h={36} mb="lg" />
           </>
         )}
 
-        <Text fw={500} size="sm" c="dimmed" mb="sm">
-          Team Dashboards
-        </Text>
-
-        <Flex justify="space-between" align="center" mb="lg" gap="sm">
-          <Group gap="xs" style={{ flex: 1 }}>
-            <TextInput
-              placeholder="Search by name"
-              leftSection={<IconSearch size={16} />}
-              value={search}
-              onChange={e => setSearch(e.currentTarget.value)}
-              style={{ flex: 1, maxWidth: 400 }}
-              miw={100}
-            />
-            {allTags.length > 0 && (
-              <Select
-                placeholder="Filter by tag"
-                data={allTags}
-                value={tagFilter}
-                onChange={v => setTagFilter(v)}
-                clearable
-                searchable
-                style={{ maxWidth: 200 }}
-              />
-            )}
-          </Group>
-          <Group gap="xs" align="center">
-            <ActionIcon.Group>
-              <ActionIcon
-                variant={viewMode === 'grid' ? 'primary' : 'secondary'}
-                size="input-sm"
-                onClick={() => setViewMode('grid')}
-                aria-label="Grid view"
-              >
-                <IconLayoutGrid size={16} />
-              </ActionIcon>
-              <ActionIcon
-                variant={viewMode === 'list' ? 'primary' : 'secondary'}
-                size="input-sm"
-                onClick={() => setViewMode('list')}
-                aria-label="List view"
-              >
-                <IconList size={16} />
-              </ActionIcon>
-            </ActionIcon.Group>
-            {canManageDashboards && (
-              <>
-                <Button
-                  component={Link}
-                  href="/dashboards/import"
-                  variant="secondary"
-                  leftSection={<IconUpload size={16} />}
-                  data-testid="import-dashboard-button"
-                >
-                  Import
-                </Button>
-                <Menu position="bottom-end" withinPortal>
-                  <Menu.Target>
-                    <Button
-                      variant="primary"
-                      leftSection={<IconPlus size={16} />}
-                      rightSection={<IconChevronDown size={14} />}
-                      loading={createDashboard.isPending}
-                      data-testid="new-dashboard-button"
-                    >
-                      New Dashboard
-                    </Button>
-                  </Menu.Target>
-                  <Menu.Dropdown>
-                    <Menu.Item
-                      leftSection={<IconDeviceFloppy size={14} />}
-                      onClick={handleCreate}
-                      data-testid="create-dashboard-button"
-                    >
-                      Saved Dashboard
-                      <Text size="xs" c="dimmed">
-                        Persisted for your team
-                      </Text>
-                    </Menu.Item>
-                    <Menu.Item
-                      component={Link}
-                      href="/dashboards"
-                      leftSection={<IconPlus size={14} />}
-                      data-testid="temp-dashboard-button"
-                    >
-                      Temporary Dashboard
-                      <Text size="xs" c="dimmed">
-                        Lives in your browser only
-                      </Text>
-                    </Menu.Item>
-                  </Menu.Dropdown>
-                </Menu>
-              </>
-            )}
-          </Group>
-        </Flex>
-
-        {isLoading ? (
+        {isLoading || isTabDataPending ? (
           <Text size="sm" c="dimmed" ta="center" py="xl">
             Loading dashboards...
           </Text>
-        ) : isError ? (
+        ) : isError || (tab === 'favorites' && isFavoritesError) ? (
           <Text size="sm" c="red" ta="center" py="xl">
             Failed to load dashboards. Please try refreshing the page.
           </Text>
-        ) : filteredDashboards.length === 0 ? (
+        ) : visibleDashboards.length === 0 ? (
           <Flex
             align="center"
             justify="center"
@@ -362,11 +341,7 @@ export default function DashboardsListPage() {
           >
             <EmptyState
               icon={<IconLayoutGrid size={32} />}
-              title={
-                search || tagFilter
-                  ? 'No matching dashboards yet'
-                  : 'No dashboards yet'
-              }
+              title={emptyStateTitle(tab, !!(search || tagFilter.length))}
             >
               <Group>
                 {canManageDashboards && (
@@ -395,76 +370,73 @@ export default function DashboardsListPage() {
             </EmptyState>
           </Flex>
         ) : viewMode === 'list' ? (
-          <Table highlightOnHover>
-            <Table.Thead>
-              <Table.Tr>
-                <Table.Th w={40} />
-                <Table.Th>Name</Table.Th>
-                <Table.Th>Tags</Table.Th>
-                <Table.Th>Created By</Table.Th>
-                <Table.Th>Last Updated</Table.Th>
-                <Table.Th w={50} />
-              </Table.Tr>
-            </Table.Thead>
-            <Table.Tbody>
-              {filteredDashboards.map(d => (
-                <ListingRow
-                  key={d.id}
-                  id={d.id}
-                  name={d.name}
-                  href={`/dashboards/${d.id}`}
-                  tags={d.tags}
-                  onDelete={canManageDashboards ? handleDelete : undefined}
-                  createdBy={d.createdBy?.name || d.createdBy?.email}
-                  updatedAt={d.updatedAt}
-                  updatedBy={d.updatedBy?.name || d.updatedBy?.email}
-                  leftSection={
-                    <Group gap={0} ps={4} justify="space-between" wrap="nowrap">
-                      <FavoriteButton
-                        resourceType="dashboard"
-                        resourceId={d.id}
-                        size="xs"
-                      />
-                      <AlertStatusIcon alerts={getDashboardAlerts(d.tiles)} />
-                    </Group>
-                  }
-                />
-              ))}
-            </Table.Tbody>
-          </Table>
-        ) : (
-          <Stack gap="lg">
-            {tagGroups.map(group => (
-              <div key={group.tag}>
-                <Text fw={500} size="sm" c="dimmed" mb="sm">
-                  {group.tag}
-                </Text>
-                <SimpleGrid cols={{ base: 1, sm: 2, md: 3 }}>
-                  {group.items.map(d => (
-                    <ListingCard
-                      key={d.id}
-                      name={d.name}
-                      href={`/dashboards/${d.id}`}
-                      tags={d.tags}
-                      description={`${d.tiles.length} ${d.tiles.length === 1 ? 'tile' : 'tiles'}`}
-                      onDelete={
-                        canManageDashboards
-                          ? () => handleDelete(d.id)
-                          : undefined
-                      }
-                      statusIcon={
+          // Native scrollbars so the columns stay reachable by touch.
+          <Table.ScrollContainer minWidth={700} type="native">
+            <Table highlightOnHover>
+              <Table.Thead>
+                <Table.Tr>
+                  <Table.Th w={40} />
+                  <Table.Th>Name</Table.Th>
+                  <Table.Th>Tags</Table.Th>
+                  <Table.Th>Created By</Table.Th>
+                  <Table.Th>Last Updated</Table.Th>
+                  <Table.Th w={50} />
+                </Table.Tr>
+              </Table.Thead>
+              <Table.Tbody>
+                {visibleDashboards.map(d => (
+                  <ListingRow
+                    key={d.id}
+                    id={d.id}
+                    name={d.name}
+                    href={`/dashboards/${d.id}`}
+                    tags={d.tags}
+                    onDelete={canManageDashboards ? handleDelete : undefined}
+                    createdBy={d.createdBy?.name || d.createdBy?.email}
+                    updatedAt={d.updatedAt}
+                    updatedBy={d.updatedBy?.name || d.updatedBy?.email}
+                    leftSection={
+                      <Group
+                        gap={0}
+                        ps={4}
+                        justify="space-between"
+                        wrap="nowrap"
+                      >
+                        <FavoriteButton
+                          resourceType="dashboard"
+                          resourceId={d.id}
+                          size="xs"
+                        />
                         <AlertStatusIcon alerts={getDashboardAlerts(d.tiles)} />
-                      }
-                      resourceId={d.id}
-                      resourceType="dashboard"
-                      updatedAt={d.updatedAt}
-                      updatedBy={d.updatedBy?.name || d.updatedBy?.email}
-                    />
-                  ))}
-                </SimpleGrid>
-              </div>
+                      </Group>
+                    }
+                  />
+                ))}
+              </Table.Tbody>
+            </Table>
+          </Table.ScrollContainer>
+        ) : (
+          <SimpleGrid cols={{ base: 1, sm: 2, md: 3 }}>
+            {visibleDashboards.map(d => (
+              <ListingCard
+                key={d.id}
+                name={d.name}
+                href={`/dashboards/${d.id}`}
+                tags={d.tags}
+                description={`${d.tiles.length} ${d.tiles.length === 1 ? 'tile' : 'tiles'}`}
+                onDelete={
+                  canManageDashboards ? () => handleDelete(d.id) : undefined
+                }
+                statusIcon={
+                  <AlertStatusIcon alerts={getDashboardAlerts(d.tiles)} />
+                }
+                resourceId={d.id}
+                resourceType="dashboard"
+                updatedAt={d.updatedAt}
+                updatedBy={d.updatedBy?.name || d.updatedBy?.email}
+              />
             ))}
-          </Stack>
+          </SimpleGrid>
         )}
       </Container>
     </div>
