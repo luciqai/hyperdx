@@ -66,6 +66,7 @@ export function registerServiceHealth({
   registerTool(
     TOOL_NAME,
     {
+      permission: 'sources:read',
       title: 'Service Health',
       annotations: READ_ONLY_TOOL,
       description: DESCRIPTION,
