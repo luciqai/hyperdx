@@ -246,6 +246,7 @@ describe('MCP Saved Search Tools', () => {
         expect(output.where).toBe('');
         expect(output.select).toBe('');
         expect(output.tags).toEqual([]);
+        expect(output.whereLanguage).toBe('lucene');
       });
 
       it('should create a saved search with SQL where language', async () => {
@@ -383,6 +384,24 @@ describe('MCP Saved Search Tools', () => {
         const updated = await SavedSearch.findById(savedSearch._id);
         expect(updated?.name).toBe('Updated Name');
         expect(updated?.where).toBe('StatusCode:Ok');
+      });
+
+      it('should keep the stored whereLanguage when an update omits it', async () => {
+        const savedSearch = await createTestSavedSearch({
+          where: "StatusCode = 'Error'",
+          whereLanguage: 'sql',
+        });
+
+        const result = await callTool(client, 'clickstack_save_saved_search', {
+          id: savedSearch._id.toString(),
+          name: 'Renamed',
+          sourceId: traceSource._id.toString(),
+          where: "StatusCode = 'Ok'",
+        });
+
+        expect(result.isError).toBeFalsy();
+        const updated = await SavedSearch.findById(savedSearch._id);
+        expect(updated?.whereLanguage).toBe('sql');
       });
 
       it('should return error for non-existent saved search on update', async () => {
