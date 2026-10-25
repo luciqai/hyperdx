@@ -526,42 +526,46 @@ router.get(
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.post('/validate', async (req, res, next) => {
-  try {
-    const teamId = req.user?.team;
-    if (teamId == null) {
-      return res.status(403).json({ message: 'Forbidden' });
-    }
+router.post(
+  '/validate',
+  requirePermission('webhooks', 'manage'),
+  async (req, res, next) => {
+    try {
+      const teamId = req.user?.team;
+      if (teamId == null) {
+        return res.status(403).json({ message: 'Forbidden' });
+      }
 
-    const parsed = externalWebhookCreateSchema.safeParse(req.body);
-    if (!parsed.success) {
+      const parsed = externalWebhookCreateSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.json({
+          valid: false,
+          errors: parsed.error.issues.map(i => ({
+            path: i.path.join('.'),
+            message: i.message,
+          })),
+          normalized: null,
+        });
+      }
+
+      const errors = getWebhookConfigErrors(parsed.data);
+      // Never echo write-only secrets, matching every other webhook read path.
+      const {
+        headers: _headers,
+        queryParams: _queryParams,
+        ...readable
+      } = parsed.data;
+
       return res.json({
-        valid: false,
-        errors: parsed.error.issues.map(i => ({
-          path: i.path.join('.'),
-          message: i.message,
-        })),
-        normalized: null,
+        valid: errors.length === 0,
+        errors,
+        normalized: errors.length === 0 ? readable : null,
       });
+    } catch (e) {
+      next(e);
     }
-
-    const errors = getWebhookConfigErrors(parsed.data);
-    // Never echo write-only secrets, matching every other webhook read path.
-    const {
-      headers: _headers,
-      queryParams: _queryParams,
-      ...readable
-    } = parsed.data;
-
-    return res.json({
-      valid: errors.length === 0,
-      errors,
-      normalized: errors.length === 0 ? readable : null,
-    });
-  } catch (e) {
-    next(e);
-  }
-});
+  },
+);
 
 /**
  * @openapi
