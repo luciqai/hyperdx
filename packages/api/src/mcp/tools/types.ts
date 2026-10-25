@@ -10,6 +10,7 @@ import type {
 } from '@modelcontextprotocol/sdk/types.js';
 import type { AnyZodObject, ZodTypeAny } from 'zod';
 
+import type { ToolBehaviorAnnotations } from '@/mcp/tools/annotations';
 import type { McpClientInfo } from '@/mcp/utils/mcpClient';
 import type { RoleLike } from '@/middleware/rbac';
 
@@ -62,11 +63,11 @@ export type RegisterToolFn = <TSchema extends AnyZodObject>(
     description: string;
     inputSchema: TSchema;
     /**
-     * Advisory MCP tool annotations (readOnlyHint, destructiveHint, etc.).
-     * These are hints only — clients must not rely on them for safety.
-     * Enforcement lives in `permission` below.
+     * Advisory MCP tool annotations. All four behavior hints are required;
+     * use the presets in `./annotations`. These are hints only — clients
+     * must not rely on them for safety. Enforcement lives in `permission` below.
      */
-    annotations?: ToolAnnotations;
+    annotations: ToolAnnotations & ToolBehaviorAnnotations;
     /**
      * Required. A tool that declares nothing fails to compile, which is the
      * compile-time half of the coverage guarantee; assertMcpCoverage is the

@@ -16,7 +16,7 @@ import {
 import { IconAt, IconLock } from '@tabler/icons-react';
 
 import GoogleSignInButton from './components/GoogleSignInButton';
-import { useBrandDisplayName } from './theme/ThemeProvider';
+import { useBrandDisplayName, usePageTitle } from './theme/ThemeProvider';
 import api from './api';
 import * as config from './config';
 import LandingHeader from './LandingHeader';
@@ -84,8 +84,7 @@ export default function AuthPage({ action }: { action: 'register' | 'login' }) {
   const registerPassword = api.useRegisterPassword();
 
   const verificationSent = msg === 'verify';
-
-  const title = `${brandName} - ${isRegister ? 'Sign up' : 'Login'}`;
+  const title = usePageTitle(isRegister ? 'Sign up' : 'Login');
 
   useEffect(() => {
     // If an OSS user accidentally lands on /register after already creating a team

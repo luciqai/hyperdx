@@ -11,6 +11,7 @@ import {
   convertCHDataTypeToJSType,
   extractColumnReferencesFromKey,
   filterColumnMetaByType,
+  isAccessDeniedError,
   JSDataType,
   Row,
   streamToAsyncIterator,
@@ -90,6 +91,34 @@ export type KeyValues = {
   key: string;
   value: string[] | number[];
 };
+
+type AllKeyValuesQuery = {
+  databaseName: string;
+  tableName: string;
+  keyExpressions: string[];
+  maxValuesPerKey?: number;
+  connectionId: string;
+  metadataMVs?: MetadataMaterializedViews;
+  dateRange: [Date, Date];
+  timestampValueExpression: string;
+  signal?: AbortSignal;
+};
+
+/** Yields each promise's value as it resolves, fastest first. */
+async function* inCompletionOrder<T>(
+  promises: Promise<T>[],
+): AsyncGenerator<T, void, undefined> {
+  const pending = new Map(
+    promises.map(
+      (promise, i) => [i, promise.then(value => ({ i, value }))] as const,
+    ),
+  );
+  while (pending.size > 0) {
+    const { i, value } = await Promise.race(pending.values());
+    pending.delete(i);
+    yield value;
+  }
+}
 
 export type MetricNames = {
   names: string[];
@@ -652,6 +681,50 @@ export class Metadata {
     );
   }
 
+  async getTimeSeriesTables({
+    connectionId,
+  }: {
+    connectionId: string;
+  }): Promise<Pick<TableConnection, 'databaseName' | 'tableName'>[]> {
+    return this.cache.getOrFetch(
+      `${connectionId}.timeSeriesTables`,
+      async () => {
+        const sql = chSql`
+        SELECT database AS databaseName, name AS tableName
+        FROM system.tables
+        WHERE engine = 'TimeSeries'
+        ORDER BY database, name
+      `;
+        try {
+          const json = await this.clickhouseClient
+            .query<'JSON'>({
+              connectionId,
+              query: sql.sql,
+              query_params: sql.params,
+              clickhouse_settings: this.getClickHouseSettings(),
+            })
+            .then(res =>
+              res.json<Pick<TableConnection, 'databaseName' | 'tableName'>>(),
+            );
+          return json.data;
+        } catch (e) {
+          if (
+            e instanceof Error &&
+            e.message.includes('Not enough privileges')
+          ) {
+            console.warn(
+              'Not enough privileges to fetch TimeSeries tables:',
+              e,
+            );
+            return [];
+          }
+
+          throw e;
+        }
+      },
+    );
+  }
+
   async getMaterializedColumnsLookupTable({
     databaseName,
     tableName,
@@ -973,10 +1046,10 @@ export class Metadata {
         ? `${alignedDateRange[0].getTime()}.${alignedDateRange[1].getTime()}.${timestampValueExpression}`
         : '';
     const cacheKey = metricName
-      ? `${connectionId}.${databaseName}.${tableName}.${column}.${metricName}.${dateRangeCacheSuffix}.keys`
+      ? `${connectionId}.${databaseName}.${tableName}.${column}.${metricName}.${dateRangeCacheSuffix}.${maxKeys}.keys`
       : alignedDateRange
-        ? `${connectionId}.${databaseName}.${tableName}.${column}.${alignedCacheSuffix}.keys`
-        : `${connectionId}.${databaseName}.${tableName}.${column}.${dateRangeCacheSuffix}.keys`;
+        ? `${connectionId}.${databaseName}.${tableName}.${column}.${alignedCacheSuffix}.${maxKeys}.keys`
+        : `${connectionId}.${databaseName}.${tableName}.${column}.${dateRangeCacheSuffix}.${maxKeys}.keys`;
     const cachedKeys = this.cache.get<string[]>(cacheKey);
 
     if (cachedKeys != null) {
@@ -994,6 +1067,15 @@ export class Metadata {
       supportsMergeTreeTextIndex(clickhouseVersion);
     // Text Index path: query the key rollup index
     const textIndexInfo = textIndexInfoLookup.get(column);
+    const textIndexQuerySettings: ClickHouseSettings = {
+      ...this.getClickHouseSettings(),
+      // 'throw', not 'break': a partial key list would be cached without a
+      // TTL. On timeout the rollup/scan paths below take over.
+      max_execution_time: 15,
+      timeout_overflow_mode: 'throw',
+    };
+    // Set when the text index read hits a row policy; see the rollup guard.
+    let rowPolicyDenied = false;
     // Without timestampValueExpression, partsFilter can't bound this either. #3037
     if (
       textIndexInfo?.key?.indexName &&
@@ -1007,11 +1089,13 @@ export class Metadata {
         timestampValueExpression,
       });
       const index = textIndexInfo.key.indexName;
+      // `cardinality` is the token's row count in the part, not a distinct count.
       const sql = chSql`
         SELECT token AS key
         FROM mergeTreeTextIndex(${{ String: databaseName }}, ${{ String: tableName }}, ${{ String: index }})
         WHERE ${partsFilter}
         GROUP BY key HAVING key != ''
+        ORDER BY sum(cardinality) DESC, key
         LIMIT ${{ Int32: maxKeys }}`;
       try {
         const keys = await this.clickhouseClient
@@ -1019,7 +1103,8 @@ export class Metadata {
             query: sql.sql,
             query_params: sql.params,
             connectionId,
-            clickhouse_settings: this.getClickHouseSettings(),
+            clickhouse_settings: textIndexQuerySettings,
+            abort_signal: signal,
           })
           .then(r => r.json<{ key: string }>())
           .then(d => d.data.map(r => r.key).filter(Boolean));
@@ -1028,11 +1113,16 @@ export class Metadata {
           return keys;
         }
       } catch (e) {
+        // The caller gave up; don't start the fallback with a dead signal and
+        // cache its instant rejection under the rollup key.
+        if (signal?.aborted) throw e;
+        // e.g. ACCESS_DENIED under a row policy or BAD_ARGUMENTS on a
+        // Distributed table; the paths below still work.
+        rowPolicyDenied = isAccessDeniedError(e);
         console.warn(
-          'getMapKeys rollup query failed for key text index query',
+          'getMapKeys key text index query failed; falling through to the next strategy',
           e,
         );
-        return [];
       }
     } else if (
       textIndexInfo?.kv?.indexName &&
@@ -1047,11 +1137,13 @@ export class Metadata {
       });
       const index = textIndexInfo.kv.indexName;
       const separator = textIndexInfo.kv.separator;
+      // `cardinality` is the token's row count in the part, not a distinct count.
       const sql = chSql`
         SELECT splitByString(${{ String: separator }}, token)[1] AS key
         FROM mergeTreeTextIndex(${{ String: databaseName }}, ${{ String: tableName }}, ${{ String: index }})
         WHERE ${partsFilter}
         GROUP BY key HAVING key != ''
+        ORDER BY sum(cardinality) DESC, key
         LIMIT ${{ Int32: maxKeys }}`;
       try {
         const keys = await this.clickhouseClient
@@ -1059,7 +1151,8 @@ export class Metadata {
             query: sql.sql,
             query_params: sql.params,
             connectionId,
-            clickhouse_settings: this.getClickHouseSettings(),
+            clickhouse_settings: textIndexQuerySettings,
+            abort_signal: signal,
           })
           .then(r => r.json<{ key: string }>())
           .then(d => d.data.map(r => r.key).filter(Boolean));
@@ -1068,16 +1161,20 @@ export class Metadata {
           return keys;
         }
       } catch (e) {
+        // See the key text index catch above.
+        if (signal?.aborted) throw e;
+        rowPolicyDenied = isAccessDeniedError(e);
         console.warn(
-          'getMapKeys rollup query failed for kv text index query',
+          'getMapKeys kv text index query failed; falling through to the next strategy',
           e,
         );
-        return [];
       }
     }
 
-    // Rollup path: query the key rollup table filtered by ColumnIdentifier and date range
-    if (metadataMVs && alignedDateRange) {
+    // Rollup path: query the key rollup table filtered by ColumnIdentifier and date range.
+    // Rollups are separate tables the source's row policy doesn't cover, so
+    // after a policy denial only the source-table scan below is safe.
+    if (metadataMVs && alignedDateRange && !rowPolicyDenied) {
       // Own cache key: the shipped OTel rollups only index NativeColumn, so
       // Map columns come back empty here and must fall through to the bounded
       // scan below. Caching [] under cacheKey would block that fallback.
@@ -2534,50 +2631,74 @@ export class Metadata {
    * Fetches top values for one or more keys from the text index, metadataMV, or the raw table in a
    * single batched query. Falls back to getMapValues when no rollup is available.
    */
-  async getAllKeyValues({
+  async getAllKeyValues(query: AllKeyValuesQuery): Promise<KeyValues[]> {
+    const results = await Promise.all(
+      await this.dispatchAllKeyValueQueries(query),
+    );
+    return results.filter(v => v !== undefined).flat();
+  }
+
+  /**
+   * `getAllKeyValues`, yielding each query's values as soon as it finishes
+   * instead of waiting for the slowest. Every key is served by exactly one
+   * query, so its values arrive in a single yield.
+   */
+  async *streamAllKeyValues(
+    query: AllKeyValuesQuery,
+  ): AsyncGenerator<KeyValues[], void, undefined> {
+    const queries = await this.dispatchAllKeyValueQueries(query);
+    for await (const keyValues of inCompletionOrder(queries)) {
+      if (keyValues?.length) yield keyValues;
+    }
+  }
+
+  /** Starts every query the keys need, without waiting for any to finish. */
+  private async dispatchAllKeyValueQueries({
+    keyExpressions,
+    maxValuesPerKey = 20,
+    ...query
+  }: AllKeyValuesQuery): Promise<Array<Promise<KeyValues[] | undefined>>> {
+    if (keyExpressions.length === 0) return [];
+
+    if (keyExpressions.length <= GET_ALL_KEY_VALUES_CHUNK_SIZE) {
+      return this.dispatchKeyValueQueries({
+        ...query,
+        keyExpressions,
+        maxValuesPerKey,
+      });
+    }
+
+    // A batch that fails to plan is dropped; the others still answer.
+    const batches = await Promise.allSettled(
+      chunk(keyExpressions, GET_ALL_KEY_VALUES_CHUNK_SIZE).map(batch =>
+        this.dispatchKeyValueQueries({
+          ...query,
+          keyExpressions: batch,
+          maxValuesPerKey,
+        }),
+      ),
+    );
+    return batches.filter(v => v.status === 'fulfilled').flatMap(v => v.value);
+  }
+
+  /**
+   * Routes up to `GET_ALL_KEY_VALUES_CHUNK_SIZE` keys to their cheapest
+   * strategy and starts one query per strategy in use.
+   */
+  private async dispatchKeyValueQueries({
     databaseName,
     tableName,
     keyExpressions,
-    maxValuesPerKey = 20,
+    maxValuesPerKey,
     connectionId,
     metadataMVs,
     dateRange,
     timestampValueExpression,
     signal,
-  }: {
-    databaseName: string;
-    tableName: string;
-    keyExpressions: string[];
-    maxValuesPerKey?: number;
-    connectionId: string;
-    metadataMVs?: MetadataMaterializedViews;
-    dateRange: [Date, Date];
-    timestampValueExpression: string;
-    signal?: AbortSignal;
-  }): Promise<KeyValues[]> {
-    if (keyExpressions.length === 0) return [];
-
-    if (keyExpressions.length > GET_ALL_KEY_VALUES_CHUNK_SIZE) {
-      const batched = await Promise.allSettled(
-        chunk(keyExpressions, GET_ALL_KEY_VALUES_CHUNK_SIZE).map(batch =>
-          this.getAllKeyValues({
-            databaseName,
-            tableName,
-            keyExpressions: batch,
-            maxValuesPerKey,
-            connectionId,
-            metadataMVs,
-            dateRange,
-            timestampValueExpression,
-            signal,
-          }),
-        ),
-      );
-      return batched
-        .filter(v => v.status === 'fulfilled')
-        .flatMap(v => v.value);
-    }
-
+  }: AllKeyValuesQuery &
+    Required<Pick<AllKeyValuesQuery, 'maxValuesPerKey'>>): Promise<
+    Array<Promise<KeyValues[] | undefined>>
+  > {
     // Parse all keys into (rollupColumn, rollupKey) pairs
     const parsed = keyExpressions.map(keyExpr => {
       const path = parseKeyPath(keyExpr);
@@ -2726,9 +2847,8 @@ export class Metadata {
     if (rawQueryOptions.length > 0) {
       promises.push(
         // Isolate raw-table failures (timeout, abort, network) the same way
-        // the three sibling strategies do internally, so a single rejection
-        // here doesn't discard already-successful text-index / MV results
-        // when they're aggregated through `Promise.all` below.
+        // the three sibling strategies do internally, so the failure is
+        // logged rather than silently dropped below.
         this.getKeyValues({
           chartConfig: {
             from: {
@@ -2754,11 +2874,10 @@ export class Metadata {
         }),
       );
     }
-    return (await Promise.allSettled(promises))
-      .filter(res => res.status === 'fulfilled')
-      .map(v => v.value)
-      .filter(v => v !== undefined)
-      .flat();
+    // The strategies isolate their own failures; this catches anything that
+    // slips past them, so one rejection can neither discard the others'
+    // results nor go unhandled while sibling batches are still being planned.
+    return promises.map(promise => promise.catch(() => undefined));
   }
 
   async getKeyValues({
@@ -2804,6 +2923,7 @@ export class Metadata {
       keys,
       // Serialize rather than hashing the raw state: the selections are Sets.
       keyConditions: keyConditions?.map(s => s && serializeFilterState(s)),
+      limit,
       disableRowLimit,
     };
     return this.cache.getOrFetch(
@@ -3075,6 +3195,7 @@ export class Metadata {
       keys,
       // Serialize rather than hashing the raw state: the selections are Sets.
       keyConditions: keyConditions?.map(s => s && serializeFilterState(s)),
+      limit,
       disableRowLimit,
     };
     return this.cache.getOrFetch(

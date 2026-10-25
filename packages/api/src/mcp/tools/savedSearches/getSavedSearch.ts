@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 import * as config from '@/config';
 import { getSavedSearch } from '@/controllers/savedSearch';
+import { READ_ONLY_TOOL } from '@/mcp/tools/annotations';
 import type { ToolRegistrar } from '@/mcp/tools/types';
 import { mcpUserError, validateObjectId } from '@/mcp/utils/errors';
 import { SavedSearch } from '@/models/savedSearch';
@@ -18,7 +19,7 @@ export function registerGetSavedSearch({
     {
       permission: 'savedSearches:read',
       title: 'Get Saved Search(es)',
-      annotations: { readOnlyHint: true },
+      annotations: READ_ONLY_TOOL,
       description:
         'Without an ID: list all saved searches as a high-level summary ' +
         '(id, name, tags). ' +

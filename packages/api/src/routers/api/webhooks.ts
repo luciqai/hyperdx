@@ -29,8 +29,8 @@ import {
 import type { Message } from '@/tasks/checkAlerts/transports/types';
 import { isDuplicateKeyError } from '@/utils/errors';
 import {
-  validateWebhookUrl,
-  WebhookUrlValidationError,
+  isWebhookValidationError,
+  validateWebhookConfig,
 } from '@/utils/validators';
 import {
   webhookHeaderNameSchema,
@@ -123,11 +123,11 @@ const emptyToUndefined = (
 ): Record<string, string> | undefined =>
   map && Object.keys(map).length > 0 ? map : undefined;
 
-const handleWebhookUrlValidationError = (
+const handleWebhookValidationError = (
   err: unknown,
   res: express.Response,
 ): boolean => {
-  if (!(err instanceof WebhookUrlValidationError)) return false;
+  if (!isWebhookValidationError(err)) return false;
   res.status(400).json({ message: err.message });
   return true;
 };
@@ -214,7 +214,7 @@ router.post(
         data: sanitizeWebhook(serializeWebhook(webhook)),
       });
     } catch (err) {
-      if (handleWebhookUrlValidationError(err, res)) return;
+      if (handleWebhookValidationError(err, res)) return;
       // Backstop the pre-flight check against a concurrent create racing on the
       // same (team, service, name): the unique index rejects it as a duplicate.
       if (isDuplicateKeyError(err)) {
@@ -293,7 +293,7 @@ router.put(
         });
       }
 
-      validateWebhookUrl({ service, url: resolvedUrl });
+      validateWebhookConfig({ service, url: resolvedUrl, body });
 
       // When the URL is changing, use submitted values as-is (no merge).
       // An omitted field becomes undefined → $unset, so stored secrets
@@ -365,7 +365,7 @@ router.put(
         data: sanitizeWebhook(serializeWebhook(updatedWebhook)),
       });
     } catch (err) {
-      if (handleWebhookUrlValidationError(err, res)) return;
+      if (handleWebhookValidationError(err, res)) return;
       // Backstop the pre-flight check against a concurrent rename racing onto
       // the same (team, service, name): the unique index rejects it.
       if (isDuplicateKeyError(err)) {
@@ -462,7 +462,7 @@ router.post(
         }
       }
 
-      validateWebhookUrl({ service, url });
+      validateWebhookConfig({ service, url, body });
 
       // Create a temporary webhook object for testing
       const testWebhook = new Webhook({
@@ -498,6 +498,7 @@ router.post(
         thresholdMax: 10,
         value: 7,
         groupKey: 'test-group',
+        groupValues: { group: 'test-group' },
         sourceQuery: 'SeverityText: "error"',
         teamId: teamId.toString(),
         note: 'Test webhook — no runbook',
@@ -522,7 +523,7 @@ router.post(
         message: 'Test webhook sent successfully',
       });
     } catch (err) {
-      if (handleWebhookUrlValidationError(err, res)) return;
+      if (handleWebhookValidationError(err, res)) return;
       next(err);
     }
   },

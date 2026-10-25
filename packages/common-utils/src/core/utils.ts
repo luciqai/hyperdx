@@ -1,12 +1,16 @@
 // Port from ChartUtils + source.ts
 import { add as fnsAdd, format as fnsFormat } from 'date-fns';
-import { formatInTimeZone } from 'date-fns-tz';
+import { formatInTimeZone, zonedTimeToUtc } from 'date-fns-tz';
 import { omit } from 'lodash';
 import { z } from 'zod';
 
 export { default as objectHash } from 'object-hash';
 
-import { isQueryExpressionFilter, isStaticListFilter } from '@/filters';
+import {
+  isAdhocFilter,
+  isQueryExpressionFilter,
+  isStaticListFilter,
+} from '@/filters';
 import { isBuilderSavedChartConfig, isRawSqlSavedChartConfig } from '@/guards';
 import { MacroExpansionError, MalformedMacroArgsError } from '@/macroErrors';
 import {
@@ -29,6 +33,8 @@ import {
   DashboardTemplateSchema,
   DashboardWithoutId,
   DisplayType,
+  PERCENTILE_AGG_FN_LEVELS,
+  PercentileAggregateFunctionSchema,
   QuerySettings,
   RawSqlChartConfig,
   SavedChartConfig,
@@ -44,6 +50,35 @@ import { SkipIndexMetadata, TableMetadata } from './metadata';
 
 /** The default maximum number of buckets setting when determining a bucket duration for 'auto' granularity */
 export const DEFAULT_AUTO_GRANULARITY_MAX_BUCKETS = 60;
+
+/**
+ * Returns the quantile level of a percentile shorthand aggFn (`p95` -> 0.95),
+ * or undefined for any other aggFn.
+ */
+export function getPercentileAggFnLevel(
+  aggFn: string | undefined,
+): number | undefined {
+  const parsed = PercentileAggregateFunctionSchema.safeParse(aggFn);
+  return parsed.success ? PERCENTILE_AGG_FN_LEVELS[parsed.data] : undefined;
+}
+
+/** A select item rewritten by `resolvePercentileAggFn` as `quantile` at a level. */
+export type QuantileResolvedSelect<T> = Omit<T, 'aggFn' | 'level'> & {
+  aggFn: 'quantile';
+  level: number;
+};
+
+/**
+ * Rewrites a select item with a percentile shorthand aggFn (`p50`, `p90`,
+ * `p95`, `p99`) as `quantile` with the matching level. Any other select item
+ * is returned unchanged.
+ */
+export function resolvePercentileAggFn<T extends { aggFn?: string }>(
+  select: T,
+): T | QuantileResolvedSelect<T> {
+  const level = getPercentileAggFnLevel(select.aggFn);
+  return level == null ? select : { ...select, aggFn: 'quantile', level };
+}
 
 /**
  * Whether a tile's `seriesLimit` should apply an actual limit. Per the schema
@@ -725,24 +760,49 @@ const TIME_TOKENS = {
   },
 };
 
+export const UTC_TIME_ZONE = 'Etc/UTC';
+
+/** Formats `date` in `timeZone` (an IANA name), or the local zone if unset. */
 export const formatDate = (
   date: Date,
   {
-    isUTC = false,
+    timeZone,
     format = 'normal',
     clock = '12h',
   }: {
-    isUTC?: boolean;
+    timeZone?: string;
     format?: 'normal' | 'short' | 'withMs' | 'time' | 'withYear';
     clock?: '12h' | '24h';
   },
 ) => {
   const formatStr = TIME_TOKENS[format][clock];
 
-  return isUTC
-    ? formatInTimeZone(date, 'Etc/UTC', formatStr)
+  return timeZone
+    ? formatInTimeZone(date, timeZone, formatStr)
     : fnsFormat(date, formatStr);
 };
+
+/**
+ * The clock reading of `date` in `timeZone`, as a Date whose UTC fields hold
+ * that reading. Lets date maths and parsing run in a zone other than the
+ * runtime's own, using the UTC getters and setters.
+ */
+export function toWallClock(date: Date, timeZone: string): Date {
+  // Not getTimezoneOffset: it takes a clock reading, so for instants near a
+  // DST change it returns the offset from the other side of the change.
+  return new Date(
+    formatInTimeZone(date, timeZone, "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'"),
+  );
+}
+
+/**
+ * Inverse of `toWallClock`, using the zone's offset on that date. A reading in
+ * the hour repeated when clocks go back maps to its first occurrence.
+ */
+export function fromWallClock(wallClock: Date, timeZone: string): Date {
+  // An ISO string without an offset is read as a clock reading in `timeZone`.
+  return zonedTimeToUtc(wallClock.toISOString().slice(0, 23), timeZone);
+}
 
 type Dashboard = z.infer<typeof DashboardSchema>;
 type DashboardTemplate = z.infer<typeof DashboardTemplateSchema>;
@@ -821,19 +881,20 @@ export function convertToDashboardTemplate(
     // A static filter references nothing in the workspace
     if (isStaticListFilter(filter)) return filter;
 
-    // Extract name from source or default to '' if not found
-    filter.source =
-      sources.find(source => source.id === filter.source)?.name ?? '';
+    const getSourceName = (id: string) =>
+      sources.find(source => source.id === id)?.name ?? '';
 
-    if (isQueryExpressionFilter(filter)) {
-      if (filter.appliesToSourceIds?.length) {
-        const remapped = filter.appliesToSourceIds
-          .map(id => sources.find(source => source.id === id)?.name)
-          .filter((name): name is string => !!name && name.length > 0);
-        filter.appliesToSourceIds = remapped.length > 0 ? remapped : undefined;
-      } else {
-        filter.appliesToSourceIds = undefined;
-      }
+    if (isAdhocFilter(filter)) {
+      filter.sources = filter.sources.map(getSourceName);
+    } else {
+      filter.source = getSourceName(filter.source);
+    }
+
+    if (isQueryExpressionFilter(filter) || isAdhocFilter(filter)) {
+      const remapped = (filter.appliesToSourceIds ?? [])
+        .map(getSourceName)
+        .filter(name => name.length > 0);
+      filter.appliesToSourceIds = remapped.length > 0 ? remapped : undefined;
     }
     return filter;
   };
@@ -1537,9 +1598,7 @@ export function displayTypeSupportsRawSqlAlerts(
   displayType: DisplayType | undefined,
 ): boolean {
   return (
-    displayType === DisplayType.Line ||
-    displayType === DisplayType.StackedBar ||
-    displayType === DisplayType.Number
+    isTimeSeriesDisplayType(displayType) || displayType === DisplayType.Number
   );
 }
 
@@ -1547,9 +1606,7 @@ export function displayTypeSupportsBuilderAlerts(
   displayType: DisplayType | undefined,
 ): boolean {
   return (
-    displayType === DisplayType.Line ||
-    displayType === DisplayType.StackedBar ||
-    displayType === DisplayType.Number
+    isTimeSeriesDisplayType(displayType) || displayType === DisplayType.Number
   );
 }
 
@@ -1564,10 +1621,12 @@ export const isFormulaDisplayType = (
 ): displayType is
   | DisplayType.Line
   | DisplayType.StackedBar
+  | DisplayType.StackedLine
   | DisplayType.Table
   | DisplayType.Number =>
   displayType === DisplayType.Line ||
   displayType === DisplayType.StackedBar ||
+  displayType === DisplayType.StackedLine ||
   displayType === DisplayType.Table ||
   displayType === DisplayType.Number;
 
@@ -1800,11 +1859,20 @@ export function validateRawSqlChartConfig(
   return { errors, warnings };
 }
 
+/** Maps the time-series display type names used by the external API and v1 chart configs. */
+export const TIME_SERIES_DISPLAY_TYPE_BY_NAME = {
+  line: DisplayType.Line,
+  stacked_bar: DisplayType.StackedBar,
+  stacked_line: DisplayType.StackedLine,
+} as const satisfies Record<string, DisplayType>;
+
 export const isTimeSeriesDisplayType = (
   displayType: DisplayType | undefined,
 ): boolean => {
   return (
-    displayType === DisplayType.Line || displayType === DisplayType.StackedBar
+    displayType === DisplayType.Line ||
+    displayType === DisplayType.StackedBar ||
+    displayType === DisplayType.StackedLine
   );
 };
 

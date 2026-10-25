@@ -1,4 +1,10 @@
-import { DEFAULT_CONNECTIONS, DEFAULT_SOURCES } from '@/config';
+import { SourceKind } from '@hyperdx/common-utils/dist/types';
+
+import {
+  DEFAULT_CONNECTIONS,
+  DEFAULT_SOURCES,
+  IS_PROMQL_ENABLED,
+} from '@/config';
 import { createConnection, getConnections } from '@/controllers/connection';
 import { seedSystemRoles } from '@/controllers/role';
 import { createSource, getSources, updateSource } from '@/controllers/sources';
@@ -124,6 +130,13 @@ export async function setupTeamDefaults(teamId: string) {
         ) {
           logger.warn(
             `Skipping invalid source config: ${JSON.stringify(sourceConfig)}`,
+          );
+          continue;
+        }
+
+        if (sourceConfig.kind === SourceKind.Promql && !IS_PROMQL_ENABLED) {
+          logger.info(
+            `Skipping default source ${sourceConfig.name}: PromQL is disabled`,
           );
           continue;
         }

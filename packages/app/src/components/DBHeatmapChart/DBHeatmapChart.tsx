@@ -1,24 +1,20 @@
-import { useMemo } from 'react';
 import dynamic from 'next/dynamic';
-import cx from 'classnames';
-import { Text, useMantineColorScheme } from '@mantine/core';
 
-import ChartContainer from '@/components/charts/ChartContainer';
-import ChartErrorState, {
-  ChartErrorStateVariant,
-} from '@/components/charts/ChartErrorState';
-
-import { ColorLegend } from './ColorLegend';
-import type { HeatmapScaleType } from './heatmapGrid';
-import { HeatmapPlot } from './HeatmapPlot';
-import type { HeatmapChartConfig } from './heatmapQueries';
-import { darkPalette, lightPalette } from './palette';
+import { HeatmapChartView, HeatmapChartViewProps } from './HeatmapChartView';
+import type { HeatmapQuery } from './heatmapQueries';
 import type { SelectionBounds } from './selection';
+import { useCalculatedHeatmapData } from './useCalculatedHeatmapData';
 import { useHeatmapData } from './useHeatmapData';
+import { useHistogramHeatmapData } from './useHistogramHeatmapData';
+import { useSeriesHeatmapData } from './useSeriesHeatmapData';
 
-type DBHeatmapChartProps = {
-  config: HeatmapChartConfig;
-  enabled?: boolean;
+type DistributionQuery = Extract<HeatmapQuery, { mode: 'distribution' }>;
+type CalculatedQuery = Extract<HeatmapQuery, { mode: 'calculated' }>;
+type HistogramQuery = Extract<HeatmapQuery, { mode: 'histogram' }>;
+type SeriesQuery = Extract<HeatmapQuery, { mode: 'series' }>;
+
+type DistributionOnlyProps = {
+  /** Drag-select on a distribution heatmap reports time and value bounds. */
   onFilter?: (xMin: number, xMax: number, yMin: number, yMax: number) => void;
   onClearFilter?: () => void;
   /**
@@ -29,108 +25,145 @@ type DBHeatmapChartProps = {
    * this is purely a visual mirror of that state.
    */
   selectionBounds?: SelectionBounds | null;
-  title?: React.ReactNode;
-  toolbarPrefix?: React.ReactNode[];
-  toolbarSuffix?: React.ReactNode[];
-  scaleType?: HeatmapScaleType;
-  showLegend?: boolean;
-  errorVariant?: ChartErrorStateVariant;
 };
 
+type DBHeatmapChartProps = HeatmapChartViewProps &
+  DistributionOnlyProps & {
+    query: HeatmapQuery;
+    enabled?: boolean;
+  };
+
+function DistributionHeatmapChart({
+  query,
+  enabled,
+  onFilter,
+  ...viewProps
+}: HeatmapChartViewProps &
+  DistributionOnlyProps & { query: DistributionQuery; enabled: boolean }) {
+  const data = useHeatmapData({
+    config: query.config,
+    scaleType: query.scaleType,
+    enabled,
+  });
+  const { view } = data;
+
+  return (
+    <HeatmapChartView
+      {...viewProps}
+      data={data}
+      plotKey={JSON.stringify(query.config)}
+      numberFormat={query.config.numberFormat}
+      onFilter={
+        onFilter
+          ? (xMin, xMax, yMin, yMax) => {
+              // In log mode, the bottom bucket collects all values
+              // clamped by greatest(value, effectiveMin).  If the
+              // selection touches that bucket, widen yMin to 0 so
+              // the downstream SQL filter captures all those spans.
+              // The 1.1x threshold adds 10% headroom to account for
+              // floating-point rounding in the bucket boundary.
+              const adjustedYMin =
+                view.scaleType === 'log' && yMin <= view.effectiveMin * 1.1
+                  ? 0
+                  : yMin;
+              onFilter(xMin, xMax, adjustedYMin, yMax);
+            }
+          : undefined
+      }
+    />
+  );
+}
+
+function SeriesHeatmapChart({
+  query,
+  enabled,
+  ...viewProps
+}: HeatmapChartViewProps & { query: SeriesQuery; enabled: boolean }) {
+  const data = useSeriesHeatmapData({
+    config: query.config,
+    enabled,
+  });
+
+  return (
+    <HeatmapChartView
+      {...viewProps}
+      data={data}
+      plotKey={JSON.stringify(query.config)}
+      numberFormat={query.config.numberFormat}
+    />
+  );
+}
+
+function CalculatedHeatmapChart({
+  query,
+  enabled,
+  ...viewProps
+}: HeatmapChartViewProps & { query: CalculatedQuery; enabled: boolean }) {
+  const data = useCalculatedHeatmapData({
+    config: query.config,
+    scaleType: query.scaleType,
+    enabled,
+  });
+
+  return (
+    <HeatmapChartView
+      {...viewProps}
+      data={data}
+      plotKey={JSON.stringify(query.config)}
+      numberFormat={query.config.numberFormat}
+    />
+  );
+}
+
+function HistogramHeatmapChart({
+  query,
+  enabled,
+  ...viewProps
+}: HeatmapChartViewProps & { query: HistogramQuery; enabled: boolean }) {
+  const data = useHistogramHeatmapData({ config: query.config, enabled });
+
+  return (
+    <HeatmapChartView
+      {...viewProps}
+      data={data}
+      plotKey={JSON.stringify(query.config)}
+      numberFormat={query.config.numberFormat}
+    />
+  );
+}
+
 function DBHeatmapChart({
-  config,
+  query,
   enabled = true,
   onFilter,
   onClearFilter,
   selectionBounds,
-  title,
-  toolbarPrefix,
-  toolbarSuffix,
-  scaleType = 'log',
-  showLegend = false,
-  errorVariant,
+  ...viewProps
 }: DBHeatmapChartProps) {
-  const { colorScheme } = useMantineColorScheme();
-  const palette = colorScheme === 'light' ? lightPalette : darkPalette;
-
-  const { view, isLoading, isRefreshing, error } = useHeatmapData({
-    config,
-    scaleType,
-    enabled,
-  });
-
-  const toolbarItemsMemo = useMemo(() => {
-    const allToolbarItems: React.ReactNode[] = [];
-
-    if (showLegend) {
-      allToolbarItems.push(
-        <ColorLegend key="heatmap-legend" colors={palette} />,
-      );
-    }
-
-    if (toolbarPrefix && toolbarPrefix.length > 0) {
-      allToolbarItems.push(...toolbarPrefix);
-    }
-
-    if (toolbarSuffix && toolbarSuffix.length > 0) {
-      allToolbarItems.push(...toolbarSuffix);
-    }
-
-    return allToolbarItems;
-  }, [showLegend, palette, toolbarPrefix, toolbarSuffix]);
-
+  if (query.mode === 'series') {
+    return (
+      <SeriesHeatmapChart {...viewProps} query={query} enabled={enabled} />
+    );
+  }
+  if (query.mode === 'calculated') {
+    return (
+      <CalculatedHeatmapChart {...viewProps} query={query} enabled={enabled} />
+    );
+  }
+  if (query.mode === 'histogram') {
+    return (
+      <HistogramHeatmapChart {...viewProps} query={query} enabled={enabled} />
+    );
+  }
   return (
-    <ChartContainer
-      title={title}
-      toolbarItems={toolbarItemsMemo}
-      disableReactiveContainer
-    >
-      {isLoading ? (
-        <Text size="sm" ta="center" p="xl">
-          Loading...
-        </Text>
-      ) : error ? (
-        <ChartErrorState error={error} variant={errorVariant} />
-      ) : view.grid.cells.length < 2 || view.generatedTsBuckets.length < 2 ? (
-        <Text
-          size="sm"
-          ta="center"
-          p="xl"
-          className={cx({ 'effect-pulse': isRefreshing })}
-        >
-          Not enough data points to render heatmap. Try expanding your search
-          criteria.
-        </Text>
-      ) : (
-        <HeatmapPlot
-          key={JSON.stringify(config)}
-          className={cx({ 'effect-pulse': isRefreshing })}
-          grid={view.grid}
-          numberFormat={config.numberFormat}
-          onFilter={
-            onFilter
-              ? (xMin, xMax, yMin, yMax) => {
-                  // In log mode, the bottom bucket collects all values
-                  // clamped by greatest(value, effectiveMin).  If the
-                  // selection touches that bucket, widen yMin to 0 so
-                  // the downstream SQL filter captures all those spans.
-                  // The 1.1x threshold adds 10% headroom to account for
-                  // floating-point rounding in the bucket boundary.
-                  const adjustedYMin =
-                    view.scaleType === 'log' && yMin <= view.effectiveMin * 1.1
-                      ? 0
-                      : yMin;
-                  onFilter(xMin, xMax, adjustedYMin, yMax);
-                }
-              : undefined
-          }
-          onClearFilter={onClearFilter}
-          scaleType={view.scaleType}
-          palette={palette}
-          selectionBounds={selectionBounds}
-        />
-      )}
-    </ChartContainer>
+    <DistributionHeatmapChart
+      {...viewProps}
+      query={query}
+      enabled={enabled}
+      onFilter={onFilter}
+      onClearFilter={onClearFilter}
+      selectionBounds={selectionBounds}
+    />
   );
 }
 

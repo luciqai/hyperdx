@@ -3,6 +3,7 @@ import { z } from 'zod';
 
 import * as config from '@/config';
 import { getDashboards } from '@/controllers/dashboard';
+import { READ_ONLY_TOOL } from '@/mcp/tools/annotations';
 import type { ToolRegistrar } from '@/mcp/tools/types';
 import { mcpUserError, validateObjectId } from '@/mcp/utils/errors';
 import Dashboard from '@/models/dashboard';
@@ -22,7 +23,7 @@ export function registerGetDashboard({
     {
       permission: 'dashboards:read',
       title: 'Get Dashboard(s)',
-      annotations: { readOnlyHint: true },
+      annotations: READ_ONLY_TOOL,
       description:
         'Without an ID: list all dashboards (returns IDs, names, tags). ' +
         'With an ID: get full dashboard detail including all tiles and configuration.',
@@ -60,7 +61,9 @@ export function registerGetDashboard({
       if (!dashboard) {
         return mcpUserError('Dashboard not found');
       }
-      const externalDashboard = convertToExternalDashboard(dashboard);
+      const externalDashboard = convertToExternalDashboard(dashboard, {
+        hidePromqlTiles: true,
+      });
       return {
         content: [
           {
