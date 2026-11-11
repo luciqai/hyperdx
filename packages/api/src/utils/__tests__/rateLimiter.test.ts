@@ -1,6 +1,7 @@
 import {
   ipBucket,
   ipOnlyKeyGenerator,
+  isNotAuthFailure,
   rateLimiterKeyGenerator,
 } from '@/utils/rateLimiter';
 
@@ -53,6 +54,23 @@ describe('ipOnlyKeyGenerator', () => {
       ipOnlyKeyGenerator(req({ ip: '2001:db8:1:2:ffff:ffff:ffff:ffff' })),
     );
   });
+});
+
+// The pre-auth limiters meter key guesses. A caller whose key was accepted and
+// who then got a 4xx/5xx for another reason has not guessed anything.
+describe('isNotAuthFailure', () => {
+  const res = (statusCode: number) => ({ statusCode }) as any;
+
+  it('counts a rejected key', () => {
+    expect(isNotAuthFailure(req(), res(401))).toBe(false);
+  });
+
+  it.each([200, 202, 400, 403, 404, 405, 429, 500])(
+    'does not count a %i',
+    status => {
+      expect(isNotAuthFailure(req(), res(status))).toBe(true);
+    },
+  );
 });
 
 // A /64 is a normal single-host IPv6 allocation. Keying on the full address

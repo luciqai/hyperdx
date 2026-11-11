@@ -7,6 +7,7 @@ import { validateUserAccessKey } from '@/middleware/auth';
 import logger from '@/utils/logger';
 import rateLimiter, {
   ipOnlyKeyGenerator,
+  isNotAuthFailure,
   rateLimiterKeyGenerator,
 } from '@/utils/rateLimiter';
 
@@ -32,7 +33,9 @@ const mcpRateLimiter = rateLimiter({
 // second traffic limiter: agents behind one NAT would otherwise share this
 // origin budget for successful calls while each stays well inside its own
 // `mcpRateLimiter` allowance. Throughput is governed per-user, behind auth.
-// Note the 405 responses above are errors, so probing GET/DELETE still counts.
+// `isNotAuthFailure` narrows "failed" to a rejected key: the 405 below goes to
+// every client on connect, so counting it would spend the budget on clients
+// that hold a valid key.
 //
 // Because the budget counts *only failures*, 30/min is generous rather than
 // tight: a legitimate MCP client essentially never fails authentication — a
@@ -46,6 +49,7 @@ const mcpAuthAttemptRateLimiter = rateLimiter({
   standardHeaders: true,
   legacyHeaders: false,
   skipSuccessfulRequests: true,
+  requestWasSuccessful: isNotAuthFailure,
   keyGenerator: ipOnlyKeyGenerator,
 });
 

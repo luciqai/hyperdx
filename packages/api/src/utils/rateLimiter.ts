@@ -103,6 +103,22 @@ export const ipOnlyKeyGenerator = (req: express.Request): string =>
   `ip:${ipBucket(req.ip)}`;
 
 /**
+ * `requestWasSuccessful` for the pre-auth limiters: only a rejected key (401
+ * from `validateUserAccessKey`) spends the failed-attempt budget.
+ *
+ * express-rate-limit's default counts every response >= 400. That also meters
+ * callers whose key was accepted: the 405 the MCP transport must return to
+ * every client's SSE probe, an RBAC 403, a 404. The budget is keyed on origin,
+ * and behind a VPN or NAT a whole organisation shares a handful of addresses,
+ * so those responses would 429 everyone on that address without one guessed
+ * key.
+ */
+export const isNotAuthFailure = (
+  _req: express.Request,
+  res: express.Response,
+): boolean => res.statusCode !== 401;
+
+/**
  * Every store handed out below, so tests can clear them. Holding the reference
  * is the only reason the store is constructed here rather than left to
  * express-rate-limit, which would build the identical MemoryStore internally.
