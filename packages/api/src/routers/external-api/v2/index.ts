@@ -14,6 +14,7 @@ import teamRouter from '@/routers/external-api/v2/team';
 import webhooksRouter from '@/routers/external-api/v2/webhooks';
 import rateLimiter, {
   ipOnlyKeyGenerator,
+  isNotAuthFailure,
   rateLimiterKeyGenerator,
 } from '@/utils/rateLimiter';
 
@@ -37,6 +38,8 @@ const defaultRateLimiter = rateLimiter({
 // authenticated traffic, and four users each staying inside their own 100/min
 // `defaultRateLimiter` allowance would 429 the whole /api/v2 surface for
 // everyone behind that IP. Throughput is governed per-user, behind auth.
+// `isNotAuthFailure` narrows "failed" to a rejected key, so a 403 or 404
+// returned to an authenticated caller does not spend it either.
 //
 // Because the budget counts *only failures*, 30/min is generous rather than
 // tight: a legitimate client essentially never fails authentication — a failed
@@ -51,6 +54,7 @@ const authAttemptRateLimiter = rateLimiter({
   standardHeaders: true,
   legacyHeaders: false,
   skipSuccessfulRequests: true,
+  requestWasSuccessful: isNotAuthFailure,
   keyGenerator: ipOnlyKeyGenerator,
 });
 
