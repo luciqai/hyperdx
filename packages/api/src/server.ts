@@ -1,3 +1,4 @@
+import { shutdown as shutdownTelemetry } from '@clickhouse/clickstack-node';
 import http from 'http';
 import gracefulShutdown from 'http-graceful-shutdown';
 import { serializeError } from 'serialize-error';
@@ -11,6 +12,7 @@ import opampApp from '@/opamp/app';
 import { setupTeamDefaults } from '@/setupDefaults';
 import logger from '@/utils/logger';
 import { bootstrapRbacRoles, warnOnRoleLessUsers } from '@/utils/rbacStartup';
+import { runOnceAfterAll } from '@/utils/runOnceAfterAll';
 import { verifySessionSecret } from '@/utils/sessionSecret';
 import { verifyTokenEncryption } from '@/utils/tokenEncryption';
 
@@ -72,7 +74,14 @@ export default class Server {
     });
 
     if (this.shouldHandleGracefulShutdown) {
-      [this.appServer, this.opampServer].forEach(server => {
+      const servers = [this.appServer, this.opampServer];
+      // Each server's forceExit calls process.exit() once its own onShutdown
+      // settles, so both wait here: telemetry stops once, after the slower
+      // server has drained, and neither exits before then.
+      const shutdownTelemetryOnce = runOnceAfterAll(servers.length, () =>
+        shutdownTelemetry(),
+      );
+      servers.forEach(server => {
         gracefulShutdown(server, {
           signals: 'SIGINT SIGTERM',
           timeout: 10000, // 10 secs
@@ -81,10 +90,19 @@ export default class Server {
           preShutdown: async () => {
             // needed operation before httpConnections are shutted down
           },
-          onShutdown: this.shutdown,
-          finally: () => {
-            logger.info('Server gracefully shut down...');
-          }, // finally function (sync) - e.g. for logging
+          onShutdown: async signal => {
+            try {
+              await this.shutdown(signal);
+              // Logged here rather than in the `finally` option, which runs
+              // after the SDK has stopped and so would not be exported.
+              logger.info('Server gracefully shut down...');
+            } finally {
+              // forceExit calls process.exit(), which skips the SDK's own
+              // exit-time flush. Before init (no key set) this resolves at
+              // once.
+              await shutdownTelemetryOnce();
+            }
+          },
         });
       });
     }

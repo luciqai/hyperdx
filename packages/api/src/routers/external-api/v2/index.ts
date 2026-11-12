@@ -1,4 +1,5 @@
 import express from 'express';
+import omit from 'lodash/omit';
 
 import { EXTERNAL_API_RATE_LIMIT_MAX } from '@/config';
 import { validateUserAccessKey } from '@/middleware/auth';
@@ -84,9 +85,11 @@ router.get(
   // Identity check: returns the caller's own user record.
   noPermissionRequired('personal-state'),
   (req, res) => {
+    const user = req.user?.toJSON();
     res.json({
       version: 'v2',
-      user: req.user?.toJSON(),
+      // A service account's accessKey is its org key hash; don't hand it out.
+      user: user?.isVirtual ? omit(user, 'accessKey') : user,
     });
   },
 );

@@ -136,6 +136,10 @@ function formatExternalWebhook(
  *           type: string
  *           description: Webhook description, shown in the UI
  *           example: "Sends critical alerts to the #incidents channel"
+ *         titleEmoji:
+ *           type: boolean
+ *           description: Set to false to omit the state emoji prefix from notification titles sent through this webhook. Unset or true keeps the default prefix.
+ *           example: false
  *         updatedAt:
  *           type: string
  *           format: date-time
@@ -176,6 +180,10 @@ function formatExternalWebhook(
  *           type: string
  *           description: Webhook description, shown in the UI
  *           example: Routes alerts to incident.io for on-call escalation
+ *         titleEmoji:
+ *           type: boolean
+ *           description: Set to false to omit the state emoji prefix from notification titles sent through this webhook. Unset or true keeps the default prefix.
+ *           example: false
  *         updatedAt:
  *           type: string
  *           format: date-time
@@ -216,6 +224,10 @@ function formatExternalWebhook(
  *           type: string
  *           description: Webhook description, shown in the UI
  *           example: Forwards alert payloads to an external monitoring service
+ *         titleEmoji:
+ *           type: boolean
+ *           description: Set to false to omit the state emoji prefix from notification titles sent through this webhook. Unset or true keeps the default prefix.
+ *           example: false
  *         body:
  *           type: string
  *           description: Optional request body template
@@ -381,7 +393,7 @@ router.get(
  *         `queryParams` are write-only — they are accepted here but never
  *         returned by any read endpoint, so secrets such as auth tokens do
  *         not leak. On
- *         update (PUT), omitted readable fields (`description`, `body`) are
+ *         update (PUT), omitted readable fields (`description`, `titleEmoji`, `body`) are
  *         cleared, while omitted `headers`/`queryParams` are preserved —
  *         send an explicit `{}` to clear them. Exception: if the destination
  *         (`url` or `service`) changes, omitted `headers`/`queryParams` are
@@ -409,6 +421,10 @@ router.get(
  *           maxLength: 2048
  *           description: Webhook description, shown in the UI.
  *           example: "Sends critical alerts to the #incidents channel"
+ *         titleEmoji:
+ *           type: boolean
+ *           description: Set to false to omit the state emoji prefix from notification titles sent through this webhook. Unset or true keeps the default prefix.
+ *           example: false
  *         body:
  *           type: string
  *           maxLength: 16384
@@ -618,14 +634,23 @@ router.post(
         return res.status(403).json({ message: 'Forbidden' });
       }
 
-      const { name, service, url, description, queryParams, headers, body } =
-        req.body;
+      const {
+        name,
+        service,
+        url,
+        description,
+        titleEmoji,
+        queryParams,
+        headers,
+        body,
+      } = req.body;
 
       const webhook = await createWebhook(teamId, {
         name,
         service,
         url,
         description,
+        titleEmoji,
         queryParams,
         headers,
         body,
@@ -654,7 +679,7 @@ router.post(
  *     summary: Update Webhook
  *     description: |
  *       Replaces an existing webhook. Readable optional fields
- *       (`description`, `body`) are a full replace: omitting them clears
+ *       (`description`, `titleEmoji`, `body`) are a full replace: omitting them clears
  *       them. The write-only fields `headers` and `queryParams` are never
  *       returned on read, so omitting them preserves the stored values;
  *       send an explicit empty object (`{}`) to clear them. Exception: if the
@@ -729,14 +754,23 @@ router.put(
         return res.status(403).json({ message: 'Forbidden' });
       }
 
-      const { name, service, url, description, queryParams, headers, body } =
-        req.body;
+      const {
+        name,
+        service,
+        url,
+        description,
+        titleEmoji,
+        queryParams,
+        headers,
+        body,
+      } = req.body;
 
       const result = await updateWebhook(teamId, req.params.id, {
         name,
         service,
         url,
         description,
+        titleEmoji,
         queryParams,
         headers,
         body,

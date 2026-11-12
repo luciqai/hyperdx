@@ -8,6 +8,7 @@ jest.mock('@/config', () => ({
 }));
 jest.mock('@/utils/logger', () => ({ __esModule: true, default: mockLogger }));
 jest.mock('@/utils/instrumentation', () => ({
+  getCounter: () => ({ add: jest.fn() }),
   getStaticFeatureFlags: () => ({}),
   setBusinessContext: jest.fn(),
 }));

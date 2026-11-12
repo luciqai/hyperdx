@@ -179,7 +179,7 @@ export function registerServiceHealth({
             report.summary.statusCounts.degraded,
         });
 
-        const { data, isTrimmed } = trimToolResponse(report);
+        const { data, isTrimmed, notes: trimNotes } = trimToolResponse(report);
         return {
           content: [
             {
@@ -189,6 +189,7 @@ export function registerServiceHealth({
                   ? {
                       ...data,
                       note: 'Trimmed for context size. Lower topN or topErrorsPerService.',
+                      trimNotes,
                     }
                   : data,
                 null,

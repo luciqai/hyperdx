@@ -1,7 +1,8 @@
 import { useCallback } from 'react';
 import SqlString from 'sqlstring';
+import { Separator } from '@clickhouse/click-ui';
 import { TTraceSource } from '@hyperdx/common-utils/dist/types';
-import { Button, Divider, Group, Stack, Text } from '@mantine/core';
+import { Button, Group, Stack, Text } from '@mantine/core';
 import {
   IconActivity,
   IconClock,
@@ -13,6 +14,7 @@ import {
 import { formatDurationMs } from '@/utils';
 
 import {
+  buildServiceMapErrorWhere,
   ERROR_RATE_HIGH,
   formatApproximateNumber,
   formatRate,
@@ -77,15 +79,12 @@ export default function ServiceMapTooltip({
     navigateToTraceSearch({
       dateRange,
       source,
-      where: SqlString.format(
-        "? = ? AND ? IN ('Server', 'Consumer') AND ? = 'Error'",
-        [
-          SqlString.raw(source.serviceNameExpression ?? 'ServiceName'),
-          serviceName,
-          SqlString.raw(source.spanKindExpression ?? 'SpanKind'),
-          SqlString.raw(source.statusCodeExpression ?? 'StatusCode'),
-        ],
-      ),
+      where: buildServiceMapErrorWhere({
+        serviceNameExpression: source.serviceNameExpression ?? 'ServiceName',
+        serviceName,
+        spanKindExpression: source.spanKindExpression ?? 'SpanKind',
+        statusCodeExpression: source.statusCodeExpression ?? 'StatusCode',
+      }),
     });
   }, [dateRange, source, serviceName]);
 
@@ -105,7 +104,7 @@ export default function ServiceMapTooltip({
       >
         {serviceName}
       </Text>
-      <Divider color="var(--color-border)" />
+      <Separator size="xs" />
       <Button
         onClick={handleRequestsClick}
         variant="subtle"
@@ -154,7 +153,7 @@ export default function ServiceMapTooltip({
       ) : null}
       {onFocus ? (
         <>
-          <Divider color="var(--color-border)" />
+          <Separator size="xs" />
           <Button
             onClick={onFocus}
             variant="secondary"

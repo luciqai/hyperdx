@@ -20,6 +20,10 @@ import { objectIdSchema } from '@/utils/zod';
 
 const router = express.Router();
 
+const updateSavedSearchBodySchema = SavedSearchSchema.partial().extend({
+  name: z.string().trim().min(1).optional(),
+});
+
 type SavedSearchListExpRes = express.Response<SavedSearchListApiResponse[]>;
 
 router.get(
@@ -67,9 +71,7 @@ router.patch(
   '/:id',
   requirePermission('savedSearches', 'manage'),
   validateRequest({
-    body: SavedSearchSchema.partial().extend({
-      name: z.string().trim().min(1).optional(),
-    }),
+    body: updateSavedSearchBodySchema,
     params: z.object({
       id: objectIdSchema,
     }),
@@ -88,7 +90,13 @@ router.patch(
         return;
       }
 
-      const updates = _.omitBy(req.body, _.isNil);
+      // Re-parse: validateRequest validates without replacing req.body, so
+      // server-owned keys like `team`/`createdBy` would otherwise reach the
+      // update. Parsing drops every key the schema doesn't declare.
+      const updates = _.omitBy(
+        updateSavedSearchBodySchema.parse(req.body),
+        _.isNil,
+      );
 
       const updatedSavedSearch = await updateSavedSearch(
         teamId.toString(),

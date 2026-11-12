@@ -31,8 +31,8 @@ jest.mock('@/LandingHeader', () => ({
   default: () => <div data-testid="landing-header" />,
 }));
 
-jest.mock('@/theme/ThemeProvider', () => ({
-  __esModule: true,
+jest.mock('@/brand', () => ({
+  ...jest.requireActual('@/brand'),
   useBrandDisplayName: () => 'HyperDX',
 }));
 
