@@ -41,7 +41,8 @@ beforeEach(() => {
     data: [
       {
         id: 'src1',
-        name: 'Logs',
+        // Not 'Logs': the list also renders the source kind under that label.
+        name: 'App logs',
         kind: 'log',
         connectionName: 'Default',
         from: { databaseName: 'default', tableName: 'otel_logs' },
@@ -61,7 +62,7 @@ describe('SourcesList permission gating', () => {
   it('lists sources for a role holding only sources: read', () => {
     perms('read');
     renderWithMantine(<SourcesList />);
-    expect(screen.getByText('Logs')).toBeInTheDocument();
+    expect(screen.getByText('App logs')).toBeInTheDocument();
   });
 
   it('hides the expand chevron from a role holding only sources: read', () => {

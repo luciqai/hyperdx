@@ -30,6 +30,16 @@ export function setupDashboardTests() {
     traceSource: null as any,
     connection: null as any,
     client: null as Client | null,
+    /** Replaces `client` with one whose MCP context has these overrides. */
+    reconnect: async (overrides: Partial<McpContext>): Promise<void> => {
+      await ctx.client?.close();
+      ctx.client = await createTestClient({
+        teamId: ctx.team._id.toString(),
+        userId: ctx.user._id.toString(),
+        role: MCP_TEST_ADMIN_ROLE,
+        ...overrides,
+      });
+    },
   };
 
   beforeAll(async () => {

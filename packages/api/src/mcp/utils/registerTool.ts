@@ -81,6 +81,15 @@ export function createRegisterTool(
       context,
       guarded as Parameters<typeof withToolTracing>[2],
     );
-    server.registerTool<AnyZodObject, AnyZodObject>(name, sdkConfig, traced);
+    // Directory listings read the display name from annotations.title, not
+    // the top-level title, so mirror it there.
+    server.registerTool<AnyZodObject, AnyZodObject>(
+      name,
+      {
+        ...sdkConfig,
+        annotations: { title: sdkConfig.title, ...sdkConfig.annotations },
+      },
+      traced,
+    );
   };
 }

@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { getConnectionsByTeam } from '@/controllers/connection';
 import { getSources } from '@/controllers/sources';
 import type { PromptDefinition } from '@/mcp/tools/types';
+import { isHiddenSource, isPromqlEnabled } from '@/mcp/utils/promql';
 import logger from '@/utils/logger';
 
 import {
@@ -18,6 +19,7 @@ import {
 
 const dashboardPrompts: PromptDefinition = ({ context, registerPrompt }) => {
   const { teamId } = context;
+  const promptOptions = { promql: isPromqlEnabled(context) };
 
   // ── create_dashboard ──────────────────────────────────────────────────────
 
@@ -47,10 +49,11 @@ const dashboardPrompts: PromptDefinition = ({ context, registerPrompt }) => {
       let logSourceId: string;
 
       try {
-        const [sources, connections] = await Promise.all([
+        const [allSources, connections] = await Promise.all([
           getSources(teamId),
           getConnectionsByTeam(teamId),
         ]);
+        const sources = allSources.filter(s => !isHiddenSource(context, s));
 
         sourceSummary = buildSourceSummary(
           sources.map(s => ({
@@ -91,6 +94,7 @@ const dashboardPrompts: PromptDefinition = ({ context, registerPrompt }) => {
                 traceSourceId,
                 logSourceId,
                 description,
+                promptOptions,
               ),
             },
           },
@@ -180,7 +184,7 @@ const dashboardPrompts: PromptDefinition = ({ context, registerPrompt }) => {
       description:
         'Look up HyperDX query syntax: aggregation functions, ' +
         'Lucene/SQL filters, raw SQL macros, column naming, ' +
-        'per-tile constraints, and common mistakes.',
+        `per-tile constraints, ${promptOptions.promql ? 'PromQL, ' : ''}and common mistakes.`,
       permission: 'sources:read',
     },
     async () => {
@@ -190,7 +194,7 @@ const dashboardPrompts: PromptDefinition = ({ context, registerPrompt }) => {
             role: 'user' as const,
             content: {
               type: 'text' as const,
-              text: buildQueryGuidePrompt(),
+              text: buildQueryGuidePrompt(promptOptions),
             },
           },
         ],

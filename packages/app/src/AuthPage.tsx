@@ -16,8 +16,8 @@ import {
 import { IconAt, IconLock } from '@tabler/icons-react';
 
 import GoogleSignInButton from './components/GoogleSignInButton';
-import { useBrandDisplayName, usePageTitle } from './theme/ThemeProvider';
 import api from './api';
+import { useBrandDisplayName, usePageTitle } from './brand';
 import * as config from './config';
 import LandingHeader from './LandingHeader';
 import { CheckOrX, PasswordCheck } from './PasswordCheck';
