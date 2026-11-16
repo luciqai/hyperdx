@@ -2068,8 +2068,10 @@ async function renderMetricWhere(
  * over the same range.
  *
  * Returns the range such a chart scans instead: the start moved back by one
- * auto-granularity bucket, with a floor for short ranges. Undefined when the
- * chart has a granularity (the scan is already padded) or no date range.
+ * auto-granularity bucket, with a floor for short ranges. Undefined (no
+ * lookback) when the chart has a granularity (the scan is already padded),
+ * when it has no date range, or when it is rendered as a raw SQL template
+ * (the template supplies its own time bounds).
  */
 function getMetricLookbackDateRange(
   chartConfig: BuilderChartConfigWithOptDateRangeEx,

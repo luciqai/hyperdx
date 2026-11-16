@@ -1599,6 +1599,24 @@ describe('renderChartConfig', () => {
       expect(sql).not.toContain('FROM Source WHERE');
     });
 
+    it('does not scan back for a counter when there is no date range', async () => {
+      const sql = await renderMetricSql(increase, { dateRange: undefined });
+      expect(sql).not.toContain('FROM Source WHERE');
+      expect(sql).not.toContain(scanFilter(FIVE_MINUTES_MS));
+    });
+
+    it('does not scan back for a counter rendered as a raw SQL template', async () => {
+      // The flag is set by the raw SQL builder, not part of the public config type.
+      const sql = await renderMetricSql(increase, {
+        isRenderingRawSqlTemplate: true,
+      } as Partial<ChartConfigWithOptDateRange>);
+      expect(sql).not.toContain('FROM Source WHERE');
+      expect(sql).not.toContain(scanFilter(FIVE_MINUTES_MS));
+      // The scan keeps the template's own time bound, not a padded timestamp.
+      expect(sql).not.toContain(String(RANGE_START_MS - FIVE_MINUTES_MS));
+      expect(sql).toContain('$__fromTime');
+    });
+
     it('does not scan back for a counter read as its raw cumulative value', async () => {
       const sql = await renderMetricSql({ metricType: MetricsDataType.Sum });
       expect(sql).toContain(scanFilter(0));
