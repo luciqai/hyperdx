@@ -1082,8 +1082,13 @@ describe('renderChartConfig', () => {
         expect(actual).not.toMatch(
           /SELECT `__hdx_time_bucket`, "Value" FROM metrics/,
         );
+        // The 305 day range resolves to 7 day buckets, so the scan starts 7
+        // days early and the lookback samples are dropped after the deltas.
         expect(actual).toContain(
-          'WHERE (TimeUnix >= fromUnixTimestamp64Milli(1739318400000) AND TimeUnix <= fromUnixTimestamp64Milli(1765670400000))',
+          'WHERE (TimeUnix >= fromUnixTimestamp64Milli(1738713600000) AND TimeUnix <= fromUnixTimestamp64Milli(1765670400000))',
+        );
+        expect(actual).toContain(
+          'WHERE TimeUnix >= fromUnixTimestamp64Milli(1739318400000)',
         );
         expect(actual).not.toContain('toStartOfInterval');
         expect(actual).toMatchSnapshot();
@@ -1214,8 +1219,13 @@ describe('renderChartConfig', () => {
         expect(actual).not.toMatch(
           /SELECT `__hdx_time_bucket`, "Value" FROM metrics/,
         );
+        // The 305 day range resolves to 7 day buckets, so the scan starts 7
+        // days early and the lookback samples are dropped after the deltas.
         expect(actual).toContain(
-          'WHERE (TimeUnix >= fromUnixTimestamp64Milli(1739318400000) AND TimeUnix <= fromUnixTimestamp64Milli(1765670400000))',
+          'WHERE (TimeUnix >= fromUnixTimestamp64Milli(1738713600000) AND TimeUnix <= fromUnixTimestamp64Milli(1765670400000))',
+        );
+        expect(actual).toContain(
+          'WHERE TimeUnix >= fromUnixTimestamp64Milli(1739318400000)',
         );
         expect(actual).not.toContain('toStartOfInterval');
         expect(actual).toMatchSnapshot();
@@ -1603,6 +1613,38 @@ describe('renderChartConfig', () => {
       expect(sql).toContain(scanFilter(0));
       expect(sql).not.toContain(scanFilter(FIVE_MINUTES_MS));
     });
+
+    it.each([
+      [
+        MetricsDataType.Histogram,
+        { aggFn: 'count' },
+        `sum(delta) AS "Value" FROM source WHERE ${RANGE_START_FILTER} ) SELECT`,
+      ],
+      [
+        MetricsDataType.Histogram,
+        { aggFn: 'quantile', level: 0.5 },
+        `) ) WHERE ${RANGE_START_FILTER} GROUP BY MetricName, ExplicitBounds`,
+      ],
+      [
+        MetricsDataType.ExponentialHistogram,
+        { aggFn: 'count' },
+        `sum(delta) AS "Value" FROM source WHERE ${RANGE_START_FILTER} ) SELECT`,
+      ],
+      [
+        MetricsDataType.ExponentialHistogram,
+        { aggFn: 'quantile', level: 0.5 },
+        `FROM normalized_deltas WHERE ${RANGE_START_FILTER} ),`,
+      ],
+    ] as const)(
+      'scans back before the range for a %s (%o) and keeps only in-range samples',
+      async (metricType, select, inRangeFilter) => {
+        const sql = await renderMetricSql({ ...select, metricType });
+        expect(sql).toContain(scanFilter(FIVE_MINUTES_MS));
+        expect(sql).toContain(inRangeFilter);
+        // One scan bound and one in-range filter: nothing else filters on time.
+        expect(sql.split('fromUnixTimestamp64Milli(')).toHaveLength(4);
+      },
+    );
   });
 
   describe('containing CTE clauses', () => {

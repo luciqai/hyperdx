@@ -2576,6 +2576,15 @@ async function translateMetricChartConfig(
           : chartConfig.granularity,
     } satisfies BuilderChartConfigWithOptDateRangeEx;
 
+    const lookbackDateRange = getMetricLookbackDateRange(chartConfig);
+    const rangeStartFilter =
+      lookbackDateRange && chartConfig.dateRange
+        ? renderMetricRangeStartFilter({
+            ...chartConfig,
+            dateRange: chartConfig.dateRange,
+          })
+        : undefined;
+
     const hasGranularity = isUsingGranularity(cteChartConfig);
     const timeBucketSelect = hasGranularity
       ? timeBucketExpr({
@@ -2586,7 +2595,16 @@ async function translateMetricChartConfig(
           minGranularitySeconds: cteChartConfig.minGranularitySeconds,
         })
       : undefined;
-    const where = await renderMetricWhere(cteChartConfig, metadata);
+    const where = await renderMetricWhere(
+      lookbackDateRange
+        ? {
+            ...cteChartConfig,
+            dateRange: lookbackDateRange,
+            dateRangeStartInclusive: true,
+          }
+        : cteChartConfig,
+      metadata,
+    );
 
     // Time bucket grouping is being handled separately, so make sure to ignore the granularity
     // logic for histograms specifically.
@@ -2614,6 +2632,7 @@ async function translateMetricChartConfig(
         metricType,
       }),
       where,
+      rangeStartFilter,
       valueAlias,
     };
 
@@ -2654,7 +2673,8 @@ async function translateMetricChartConfig(
         : restChartConfig.orderBy,
       where: '', // clear up the condition since the where clause is already applied at the upstream CTE
       // Timeseries queries discard padded buckets here. Non-timeseries queries
-      // scan only the visible range and have no time dimension to filter.
+      // drop the lookback samples inside the CTEs and have no time dimension
+      // to filter.
       dateRange: hasGranularity ? restChartConfig.dateRange : undefined,
       groupBy: undefined,
       granularity: undefined, // time bucketing and granularity is applied at the source CTE

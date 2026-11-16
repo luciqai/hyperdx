@@ -10,10 +10,20 @@ type HistogramCountInput = {
   groupBy?: TemplatedInput;
   from: TemplatedInput;
   where: TemplatedInput;
+  /**
+   * Set when `where` scans back past the range start so the first cumulative
+   * sample in the range has a predecessor. Applied after the deltas are
+   * computed, so only samples inside the range are aggregated.
+   */
+  rangeStartFilter?: TemplatedInput;
   valueAlias: TemplatedInput;
 };
 
 export const GROUP_ALIAS = 'group';
+
+// Rendered on the FROM line so queries without a filter stay byte-identical.
+const renderRangeStartWhere = (rangeStartFilter: TemplatedInput | undefined) =>
+  rangeStartFilter ? chSql` WHERE ${rangeStartFilter}` : chSql``;
 
 const renderTimeBucketProjection = (
   timeBucketSelect: TemplatedInput | undefined,
@@ -70,6 +80,7 @@ export const translateHistogram = ({
   groupBy?: TemplatedInput;
   from: TemplatedInput;
   where: TemplatedInput;
+  rangeStartFilter?: TemplatedInput;
   valueAlias: TemplatedInput;
 }) => {
   if (select.aggFn === 'quantile') {
@@ -91,6 +102,7 @@ const translateHistogramCount = ({
   groupBy,
   from,
   where,
+  rangeStartFilter,
   valueAlias,
 }: HistogramCountInput): WithClauses => [
   {
@@ -128,7 +140,7 @@ const translateHistogramCount = ({
         SELECT
             ${renderOutputDimensions({ timeBucketSelect, groupBy })}
             sum(delta) AS "${valueAlias}"
-        FROM source
+        FROM source${renderRangeStartWhere(rangeStartFilter)}
         ${renderDimensionGroupBy({ timeBucketSelect, groupBy })}
     `,
   },
@@ -139,6 +151,7 @@ const translateHistogramQuantile = ({
   groupBy,
   from,
   where,
+  rangeStartFilter,
   valueAlias,
   level,
 }: {
@@ -146,6 +159,7 @@ const translateHistogramQuantile = ({
   groupBy?: TemplatedInput;
   from: TemplatedInput;
   where: TemplatedInput;
+  rangeStartFilter?: TemplatedInput;
   valueAlias: TemplatedInput;
   level: number;
 }): WithClauses => [
@@ -201,7 +215,7 @@ const translateHistogramQuantile = ({
               ORDER BY attr_hash, TimeUnix
               ROWS BETWEEN 1 PRECEDING AND 1 PRECEDING
             )
-          )
+          )${renderRangeStartWhere(rangeStartFilter)}
           GROUP BY ${timeBucketSelect ? chSql`${FIXED_TIME_BUCKET_EXPR_ALIAS},` : ''} MetricName, ${groupBy ? `${GROUP_ALIAS}, ` : ''}ExplicitBounds
           ${timeBucketSelect ? chSql`ORDER BY ${FIXED_TIME_BUCKET_EXPR_ALIAS}` : ''}
           `,
@@ -258,6 +272,7 @@ export const translateExponentialHistogram = ({
   groupBy?: TemplatedInput;
   from: TemplatedInput;
   where: TemplatedInput;
+  rangeStartFilter?: TemplatedInput;
   valueAlias: TemplatedInput;
 }) => {
   if (select.aggFn === 'quantile') {
@@ -281,6 +296,7 @@ const translateExponentialHistogramCount = ({
   groupBy,
   from,
   where,
+  rangeStartFilter,
   valueAlias,
 }: HistogramCountInput): WithClauses => [
   {
@@ -323,7 +339,7 @@ const translateExponentialHistogramCount = ({
       SELECT
         ${renderOutputDimensions({ timeBucketSelect, groupBy })}
         sum(delta) AS "${valueAlias}"
-      FROM source
+      FROM source${renderRangeStartWhere(rangeStartFilter)}
       ${renderDimensionGroupBy({ timeBucketSelect, groupBy })}
     `,
   },
@@ -334,6 +350,7 @@ const translateExponentialHistogramQuantile = ({
   groupBy,
   from,
   where,
+  rangeStartFilter,
   valueAlias,
   level,
 }: {
@@ -341,6 +358,7 @@ const translateExponentialHistogramQuantile = ({
   groupBy?: TemplatedInput;
   from: TemplatedInput;
   where: TemplatedInput;
+  rangeStartFilter?: TemplatedInput;
   valueAlias: TemplatedInput;
   level: number;
 }): WithClauses => [
@@ -594,7 +612,7 @@ const translateExponentialHistogramQuantile = ({
         sum(ZeroCount) AS ZeroCount,
         sumMap(positive_bucket_indexes, positive_bucket_counts) AS positive_buckets,
         sumMap(negative_bucket_indexes, negative_bucket_counts) AS negative_buckets
-      FROM normalized_deltas
+      FROM normalized_deltas${renderRangeStartWhere(rangeStartFilter)}
       ${renderDimensionGroupBy({ timeBucketSelect, groupBy })}
     `,
   },
