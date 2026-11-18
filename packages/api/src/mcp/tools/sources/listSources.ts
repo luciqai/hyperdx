@@ -207,6 +207,7 @@ export function registerListSources({
   registerTool(
     'clickstack_list_sources',
     {
+      permission: 'sources:read',
       title: 'List Sources & Connections',
       annotations: READ_ONLY_TOOL,
       description:

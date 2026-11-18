@@ -56,6 +56,7 @@ export function registerSaveDashboard({
   registerTool(
     'clickstack_save_dashboard',
     {
+      permission: 'dashboards:manage',
       title: 'Create or Update Dashboard',
       annotations: UPSERT_TOOL,
       description:

@@ -11,6 +11,7 @@ import { connectDBWithRetry, mongooseConnection } from '@/models';
 import opampApp from '@/opamp/app';
 import { setupTeamDefaults } from '@/setupDefaults';
 import logger from '@/utils/logger';
+import { bootstrapRbacRoles, warnOnRoleLessUsers } from '@/utils/rbacStartup';
 import { runOnceAfterAll } from '@/utils/runOnceAfterAll';
 import { verifySessionSecret } from '@/utils/sessionSecret';
 import { verifyTokenEncryption } from '@/utils/tokenEncryption';
@@ -119,6 +120,13 @@ export default class Server {
     await connectDBWithRetry();
 
     await runStartupMigrations();
+
+    // Ahead of the diagnostic below: an install upgraded from a pre-RBAC
+    // version has no system roles and no seeding path that ever runs, so
+    // bootstrap first and let the warning report whatever it could not fix.
+    await bootstrapRbacRoles();
+
+    await warnOnRoleLessUsers();
 
     // Initialize default connections and sources for local app mode
     if (config.IS_LOCAL_APP_MODE) {

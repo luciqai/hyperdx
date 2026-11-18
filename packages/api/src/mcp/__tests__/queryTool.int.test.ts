@@ -25,7 +25,12 @@ import Connection from '@/models/connection';
 import { LogSource, Source, type SourceDocument } from '@/models/source';
 import Team from '@/models/team';
 
-import { callTool, createTestClient, getFirstText } from './mcpTestUtils';
+import {
+  callTool,
+  createTestClient,
+  getFirstText,
+  MCP_TEST_ADMIN_ROLE,
+} from './mcpTestUtils';
 
 describe('MCP Query Tools', () => {
   const server = getServer();
@@ -82,6 +87,7 @@ describe('MCP Query Tools', () => {
     const context: McpContext = {
       teamId: team._id.toString(),
       userId: user._id.toString(),
+      role: MCP_TEST_ADMIN_ROLE,
     };
     client = await createTestClient(context);
   });

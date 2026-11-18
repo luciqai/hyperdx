@@ -34,6 +34,7 @@ import {
   useUpdateConnection,
 } from '@/connection';
 import { stripTrailingSlash } from '@/utils';
+import { showApiErrorNotification } from '@/utils/errorNotification';
 
 import ConfirmDeleteMenu from './ConfirmDeleteMenu';
 
@@ -103,14 +104,12 @@ function useTestConnection({
             autoClose: 5000,
           });
         }
-      } catch (error: any) {
-        const body = await error.response?.json();
+      } catch (error: unknown) {
         setTestConnectionState(TestConnectionState.Invalid);
-        notifications.show({
-          color: 'red',
-          message: body?.error ?? 'Failed to test connection',
-          autoClose: 5000,
-        });
+        // Read `message`, not `error`: that is the key every JSON error from
+        // the API uses, including a 403 from RBAC. Looking for `error` meant a
+        // permission denial always fell through to the generic fallback.
+        void showApiErrorNotification(error, 'Failed to test connection');
       }
     }
 
@@ -190,13 +189,14 @@ export function ConnectionForm({
             });
             onSave?.();
           },
-          onError: () => {
-            notifications.show({
-              color: 'red',
-              message:
-                'Error creating connection, please check the host and credentials and try again.',
-              autoClose: 5000,
-            });
+          // Receive the error: without the parameter the server's message was
+          // discarded and the fallback below showed for ANY failure, blaming
+          // the host/credentials even for a 403.
+          onError: (error: unknown) => {
+            void showApiErrorNotification(
+              error,
+              'Error creating connection, please check the host and credentials and try again.',
+            );
           },
         },
       );
@@ -211,13 +211,11 @@ export function ConnectionForm({
             });
             onSave?.();
           },
-          onError: () => {
-            notifications.show({
-              color: 'red',
-              message:
-                'Error updating connection, please check the host and credentials and try again.',
-              autoClose: 5000,
-            });
+          onError: (error: unknown) => {
+            void showApiErrorNotification(
+              error,
+              'Error updating connection, please check the host and credentials and try again.',
+            );
           },
         },
       );

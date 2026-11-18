@@ -8,6 +8,7 @@ import { validateRequest } from 'zod-express-middleware';
 import { CODE_VERSION } from '@/config';
 import { getConnectionById } from '@/controllers/connection';
 import { getNonNullUserWithTeam } from '@/middleware/auth';
+import { requirePermission } from '@/middleware/rbac';
 import { validateRequestHeaders } from '@/middleware/validation';
 import { recordOperationOutcome } from '@/utils/instrumentation';
 import logger from '@/utils/logger';
@@ -85,6 +86,7 @@ const CUSTOM_SETTING_KEY_USER_SUFFIX = 'user';
 
 router.post(
   '/test',
+  requirePermission('connections', 'manage'),
   validateRequest({
     body: z.object({
       host: z.string().url(),
@@ -326,8 +328,13 @@ const markProxyStart: RequestHandler = (_req, res, next) => {
   next();
 };
 
+// SEC-2. Slice B still owns data-level enforcement, but leaving this
+// ungated let a sources:none role reach arbitrary read SQL against the
+// whole cluster. All three system roles hold sources:read, so no system
+// role loses anything.
 router.get(
   '/*',
+  requirePermission('sources', 'read'),
   hasConnectionId,
   getConnection,
   markProxyStart,
@@ -335,6 +342,7 @@ router.get(
 );
 router.post(
   '/*',
+  requirePermission('sources', 'read'),
   hasConnectionId,
   getConnection,
   markProxyStart,

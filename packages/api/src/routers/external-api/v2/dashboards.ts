@@ -6,6 +6,7 @@ import {
   deleteDashboard,
   recordDashboardOnboardingIfHasTiles,
 } from '@/controllers/dashboard';
+import { requirePermission } from '@/middleware/rbac';
 import Dashboard, { IDashboard } from '@/models/dashboard';
 import { processRequestWithEnhancedErrors as validateRequest } from '@/utils/enhancedErrors';
 import { ExternalDashboardTileWithId, objectIdSchema } from '@/utils/zod';
@@ -2957,25 +2958,29 @@ const router = express.Router();
  *       '401':
  *         description: Unauthorized
  */
-router.get('/', async (req, res, next) => {
-  try {
-    const teamId = req.user?.team;
-    if (teamId == null) {
-      return res.sendStatus(403);
+router.get(
+  '/',
+  requirePermission('dashboards', 'read'),
+  async (req, res, next) => {
+    try {
+      const teamId = req.user?.team;
+      if (teamId == null) {
+        return res.sendStatus(403);
+      }
+
+      const dashboards = await Dashboard.find(
+        { team: teamId },
+        EXTERNAL_DASHBOARD_PROJECTION,
+      ).sort({ name: -1 });
+
+      res.json({
+        data: dashboards.map(d => convertToExternalDashboard(d)),
+      });
+    } catch (e) {
+      next(e);
     }
-
-    const dashboards = await Dashboard.find(
-      { team: teamId },
-      EXTERNAL_DASHBOARD_PROJECTION,
-    ).sort({ name: -1 });
-
-    res.json({
-      data: dashboards.map(d => convertToExternalDashboard(d)),
-    });
-  } catch (e) {
-    next(e);
-  }
-});
+  },
+);
 
 /**
  * @openapi
@@ -3060,6 +3065,7 @@ router.get('/', async (req, res, next) => {
  */
 router.get(
   '/:id',
+  requirePermission('dashboards', 'read'),
   validateRequest({
     params: z.object({
       id: objectIdSchema,
@@ -3169,47 +3175,51 @@ router.get(
  *             example:
  *               message: "Unauthorized access. API key is missing or invalid."
  */
-router.post('/validate', async (req, res, next) => {
-  try {
-    const teamId = req.user?.team;
-    if (teamId == null) {
-      return res.sendStatus(403);
-    }
+router.post(
+  '/validate',
+  requirePermission('dashboards', 'read'),
+  async (req, res, next) => {
+    try {
+      const teamId = req.user?.team;
+      if (teamId == null) {
+        return res.sendStatus(403);
+      }
 
-    const parsed = createDashboardBodySchema.safeParse(req.body);
-    if (!parsed.success) {
-      return res.json({
-        valid: false,
-        errors: parsed.error.issues.map(i => ({
-          path: i.path.join('.'),
-          message: i.message,
-        })),
-        normalized: null,
+      const parsed = createDashboardBodySchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.json({
+          valid: false,
+          errors: parsed.error.issues.map(i => ({
+            path: i.path.join('.'),
+            message: i.message,
+          })),
+          normalized: null,
+        });
+      }
+
+      const { tiles, filters, containers } = parsed.data;
+      // Cast: createDashboardBodySchema tiles have optional `id`; the validator
+      // only reads sourceId/config — the cast is safe for a no-persist call.
+      const validationError = await validateDashboardTiles({
+        teamId: teamId.toString(),
+        tiles: tiles as ExternalDashboardTileWithId[],
+        filters,
+        containers: containers ?? [],
       });
-    }
+      if (validationError) {
+        return res.json({
+          valid: false,
+          errors: [{ path: '', message: validationError }],
+          normalized: null,
+        });
+      }
 
-    const { tiles, filters, containers } = parsed.data;
-    // Cast: createDashboardBodySchema tiles have optional `id`; the validator
-    // only reads sourceId/config — the cast is safe for a no-persist call.
-    const validationError = await validateDashboardTiles({
-      teamId: teamId.toString(),
-      tiles: tiles as ExternalDashboardTileWithId[],
-      filters,
-      containers: containers ?? [],
-    });
-    if (validationError) {
-      return res.json({
-        valid: false,
-        errors: [{ path: '', message: validationError }],
-        normalized: null,
-      });
+      return res.json({ valid: true, errors: [], normalized: parsed.data });
+    } catch (e) {
+      next(e);
     }
-
-    return res.json({ valid: true, errors: [], normalized: parsed.data });
-  } catch (e) {
-    next(e);
-  }
-});
+  },
+);
 
 /**
  * @openapi
@@ -3350,6 +3360,7 @@ router.post('/validate', async (req, res, next) => {
  */
 router.post(
   '/',
+  requirePermission('dashboards', 'manage'),
   validateRequest({
     body: createDashboardBodySchema,
   }),
@@ -3559,6 +3570,7 @@ router.post(
  */
 router.put(
   '/:id',
+  requirePermission('dashboards', 'manage'),
   validateRequest({
     params: z.object({
       id: objectIdSchema,
@@ -3726,6 +3738,7 @@ router.put(
  */
 router.delete(
   '/:id',
+  requirePermission('dashboards', 'manage'),
   validateRequest({
     params: z.object({
       id: objectIdSchema,

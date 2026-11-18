@@ -1,4 +1,4 @@
-import { createTestClient } from './mcpTestUtils';
+import { createTestClient, MCP_TEST_ADMIN_ROLE } from './mcpTestUtils';
 
 /**
  * With PromQL disabled, nothing in the MCP surface mentions PromQL: the
@@ -8,7 +8,12 @@ import { createTestClient } from './mcpTestUtils';
  */
 describe('MCP PromQL gating', () => {
   const connect = (promqlEnabled: boolean) =>
-    createTestClient({ teamId: 'team-id', userId: 'user-id', promqlEnabled });
+    createTestClient({
+      teamId: 'team-id',
+      userId: 'user-id',
+      role: MCP_TEST_ADMIN_ROLE,
+      promqlEnabled,
+    });
 
   const queryGuide = async (client: Awaited<ReturnType<typeof connect>>) => {
     const { messages } = await client.getPrompt({ name: 'query_guide' });

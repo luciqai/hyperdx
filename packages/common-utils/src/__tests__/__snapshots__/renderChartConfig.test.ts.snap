@@ -77,7 +77,7 @@ exports[`renderChartConfig histogram metric queries ORDER BY on a grouped histog
                   cityHash64(ExplicitBounds) AS bounds_hash,
                   CAST(BucketCounts AS Array(Int64)) counts
               FROM default.otel_metrics_histogram
-              WHERE (TimeUnix >= fromUnixTimestamp64Milli(1739318400000) AND TimeUnix <= fromUnixTimestamp64Milli(1765670400000)) AND ((MetricName = 'http.server.duration'))
+              WHERE (TimeUnix >= fromUnixTimestamp64Milli(1738713600000) AND TimeUnix <= fromUnixTimestamp64Milli(1765670400000)) AND ((MetricName = 'http.server.duration'))
               ORDER BY group, attr_hash, TimeUnix ASC
             )
             WINDOW prev_row AS (
@@ -85,7 +85,7 @@ exports[`renderChartConfig histogram metric queries ORDER BY on a grouped histog
               ORDER BY attr_hash, TimeUnix
               ROWS BETWEEN 1 PRECEDING AND 1 PRECEDING
             )
-          )
+          ) WHERE TimeUnix >= fromUnixTimestamp64Milli(1739318400000)
           GROUP BY  MetricName, group, ExplicitBounds
           
           ),points AS (
@@ -220,12 +220,12 @@ exports[`renderChartConfig histogram metric queries count should generate a whol
                 ELSE 0
             END AS delta
         FROM default.otel_metrics_histogram
-        WHERE (TimeUnix >= fromUnixTimestamp64Milli(1739318400000) AND TimeUnix <= fromUnixTimestamp64Milli(1765670400000)) AND ((MetricName = 'http.server.duration'))
+        WHERE (TimeUnix >= fromUnixTimestamp64Milli(1738713600000) AND TimeUnix <= fromUnixTimestamp64Milli(1765670400000)) AND ((MetricName = 'http.server.duration'))
     ),metrics AS (
         SELECT
             
             sum(delta) AS "Value"
-        FROM source
+        FROM source WHERE TimeUnix >= fromUnixTimestamp64Milli(1739318400000)
         
     ) SELECT "Value" FROM metrics LIMIT 10 SETTINGS short_circuit_function_evaluation = 'force_enable', optimize_read_in_order = 0, cast_keep_nullable = 1, additional_result_filter = 'x != 2', count_distinct_implementation = 'uniqCombined64', async_insert_busy_timeout_min_ms = 20000"
 `;
@@ -455,7 +455,7 @@ exports[`renderChartConfig histogram metric queries quantile should generate a w
                   cityHash64(ExplicitBounds) AS bounds_hash,
                   CAST(BucketCounts AS Array(Int64)) counts
               FROM default.otel_metrics_histogram
-              WHERE (TimeUnix >= fromUnixTimestamp64Milli(1739318400000) AND TimeUnix <= fromUnixTimestamp64Milli(1765670400000)) AND ((MetricName = 'http.server.duration'))
+              WHERE (TimeUnix >= fromUnixTimestamp64Milli(1738713600000) AND TimeUnix <= fromUnixTimestamp64Milli(1765670400000)) AND ((MetricName = 'http.server.duration'))
               ORDER BY attr_hash, TimeUnix ASC
             )
             WINDOW prev_row AS (
@@ -463,7 +463,7 @@ exports[`renderChartConfig histogram metric queries quantile should generate a w
               ORDER BY attr_hash, TimeUnix
               ROWS BETWEEN 1 PRECEDING AND 1 PRECEDING
             )
-          )
+          ) WHERE TimeUnix >= fromUnixTimestamp64Milli(1739318400000)
           GROUP BY  MetricName, ExplicitBounds
           
           ),points AS (
@@ -1087,7 +1087,7 @@ exports[`renderChartConfig multi-series metric charts (composed query) outer HAV
                   cityHash64(ExplicitBounds) AS bounds_hash,
                   CAST(BucketCounts AS Array(Int64)) counts
               FROM default.otel_metrics_histogram
-              WHERE (TimeUnix >= fromUnixTimestamp64Milli(1739318400000) AND TimeUnix <= fromUnixTimestamp64Milli(1739491200000)) AND ((MetricName = 'metric.latency'))
+              WHERE (TimeUnix >= fromUnixTimestamp64Milli(1739314800000) AND TimeUnix <= fromUnixTimestamp64Milli(1739491200000)) AND ((MetricName = 'metric.latency'))
               ORDER BY group, attr_hash, TimeUnix ASC
             )
             WINDOW prev_row AS (
@@ -1095,7 +1095,7 @@ exports[`renderChartConfig multi-series metric charts (composed query) outer HAV
               ORDER BY attr_hash, TimeUnix
               ROWS BETWEEN 1 PRECEDING AND 1 PRECEDING
             )
-          )
+          ) WHERE TimeUnix >= fromUnixTimestamp64Milli(1739318400000)
           GROUP BY  MetricName, group, ExplicitBounds
           
           ),points AS (
@@ -1173,7 +1173,7 @@ exports[`renderChartConfig multi-series metric charts (composed query) outer HAV
                   cityHash64(ExplicitBounds) AS bounds_hash,
                   CAST(BucketCounts AS Array(Int64)) counts
               FROM default.otel_metrics_histogram
-              WHERE (TimeUnix >= fromUnixTimestamp64Milli(1739318400000) AND TimeUnix <= fromUnixTimestamp64Milli(1739491200000)) AND ((MetricName = 'metric.latency'))
+              WHERE (TimeUnix >= fromUnixTimestamp64Milli(1739314800000) AND TimeUnix <= fromUnixTimestamp64Milli(1739491200000)) AND ((MetricName = 'metric.latency'))
               ORDER BY group, attr_hash, TimeUnix ASC
             )
             WINDOW prev_row AS (
@@ -1181,7 +1181,7 @@ exports[`renderChartConfig multi-series metric charts (composed query) outer HAV
               ORDER BY attr_hash, TimeUnix
               ROWS BETWEEN 1 PRECEDING AND 1 PRECEDING
             )
-          )
+          ) WHERE TimeUnix >= fromUnixTimestamp64Milli(1739318400000)
           GROUP BY  MetricName, group, ExplicitBounds
           
           ),points AS (

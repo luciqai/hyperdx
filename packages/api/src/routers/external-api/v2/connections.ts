@@ -9,6 +9,7 @@ import {
   getConnectionsByTeam,
   updateConnection,
 } from '@/controllers/connection';
+import { requirePermission } from '@/middleware/rbac';
 import { ConnectionDocument } from '@/models/connection';
 import { processRequestWithEnhancedErrors as validateRequest } from '@/utils/enhancedErrors';
 import logger from '@/utils/logger';
@@ -235,48 +236,52 @@ const router = express.Router();
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.get('/', async (req, res, next) => {
-  try {
-    const teamId = req.user?.team;
-    if (teamId == null) {
-      return res.sendStatus(403);
-    }
-
-    const connections = await getConnectionsByTeam(teamId.toString());
-
-    // Format each connection individually so that a single record which fails
-    // to serialize (e.g. a legacy document that doesn't satisfy the current
-    // schema) is skipped rather than failing the entire list response for
-    // every caller in the team. Skipped records are surfaced both in the logs
-    // and to the client (see `meta.skipped`) so the failure is never silent.
-    const data: ReturnType<typeof formatExternalConnection>[] = [];
-    const skippedIds: string[] = [];
-    for (const connection of connections) {
-      try {
-        data.push(formatExternalConnection(connection));
-      } catch {
-        // formatExternalConnection already logs the per-record Zod error.
-        skippedIds.push(connection._id.toString());
+router.get(
+  '/',
+  requirePermission('connections', 'read'),
+  async (req, res, next) => {
+    try {
+      const teamId = req.user?.team;
+      if (teamId == null) {
+        return res.sendStatus(403);
       }
-    }
 
-    if (skippedIds.length > 0) {
-      logger.warn(
-        { teamId: teamId.toString(), skippedIds },
-        `Skipped ${skippedIds.length} connection(s) that could not be serialized for external API`,
-      );
-    }
+      const connections = await getConnectionsByTeam(teamId.toString());
 
-    res.json({
-      data,
-      ...(skippedIds.length > 0 && {
-        meta: { skipped: skippedIds.length, skippedIds },
-      }),
-    });
-  } catch (e) {
-    next(e);
-  }
-});
+      // Format each connection individually so that a single record which fails
+      // to serialize (e.g. a legacy document that doesn't satisfy the current
+      // schema) is skipped rather than failing the entire list response for
+      // every caller in the team. Skipped records are surfaced both in the logs
+      // and to the client (see `meta.skipped`) so the failure is never silent.
+      const data: ReturnType<typeof formatExternalConnection>[] = [];
+      const skippedIds: string[] = [];
+      for (const connection of connections) {
+        try {
+          data.push(formatExternalConnection(connection));
+        } catch {
+          // formatExternalConnection already logs the per-record Zod error.
+          skippedIds.push(connection._id.toString());
+        }
+      }
+
+      if (skippedIds.length > 0) {
+        logger.warn(
+          { teamId: teamId.toString(), skippedIds },
+          `Skipped ${skippedIds.length} connection(s) that could not be serialized for external API`,
+        );
+      }
+
+      res.json({
+        data,
+        ...(skippedIds.length > 0 && {
+          meta: { skipped: skippedIds.length, skippedIds },
+        }),
+      });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
 
 /**
  * @openapi
@@ -320,6 +325,7 @@ router.get('/', async (req, res, next) => {
  */
 router.get(
   '/:id',
+  requirePermission('connections', 'read'),
   validateRequest({
     params: z.object({
       id: objectIdSchema,
@@ -390,6 +396,7 @@ router.get(
  */
 router.post(
   '/',
+  requirePermission('connections', 'manage'),
   validateRequest({
     body: createConnectionBodySchema,
   }),
@@ -478,6 +485,7 @@ router.post(
  */
 router.put(
   '/:id',
+  requirePermission('connections', 'manage'),
   validateRequest({
     params: z.object({
       id: objectIdSchema,
@@ -579,6 +587,7 @@ router.put(
  */
 router.delete(
   '/:id',
+  requirePermission('connections', 'manage'),
   validateRequest({
     params: z.object({
       id: objectIdSchema,

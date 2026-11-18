@@ -19,6 +19,7 @@ import {
   updateOrgApiKeyDescription,
 } from '@/controllers/orgApiKey';
 import { getNonNullUserWithTeam } from '@/middleware/auth';
+import { requireAdmin, requirePermission } from '@/middleware/rbac';
 import { getCounter } from '@/utils/instrumentation';
 import { objectIdSchema } from '@/utils/zod';
 
@@ -38,8 +39,12 @@ router.use((req, res, next) => {
   next();
 });
 
+// An org key acts for the team rather than for one member, so minting,
+// editing and revoking one is admin-only, as for roles. Listing shows no
+// secret and follows the roles list.
 router.get(
   '/',
+  requirePermission('team', 'read'),
   async (req, res: express.Response<OrgApiKeysApiResponse>, next) => {
     try {
       const keys = await listOrgApiKeys(getNonNullUserWithTeam(req).teamId);
@@ -52,6 +57,7 @@ router.get(
 
 router.post(
   '/',
+  requireAdmin(),
   processRequest({ body: CreateOrgApiKeyRequestSchema }),
   async (req, res: express.Response<CreateOrgApiKeyApiResponse>, next) => {
     try {
@@ -68,6 +74,7 @@ router.post(
 
 router.patch(
   '/:id',
+  requireAdmin(),
   processRequest({
     params: z.object({ id: objectIdSchema }),
     body: UpdateOrgApiKeyRequestSchema,
@@ -92,6 +99,7 @@ router.patch(
 
 router.delete(
   '/:id',
+  requireAdmin(),
   validateRequest({ params: z.object({ id: objectIdSchema }) }),
   async (req, res, next) => {
     try {

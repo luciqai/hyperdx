@@ -304,6 +304,10 @@ export function registerDescribeTable({
   registerTool(
     'clickstack_describe_table',
     {
+      // Reaches any table on a connection, registered as a source or not, and
+      // can sample its rows. That is clickstack_sql's reach, so it takes
+      // clickstack_sql's permission rather than sources:read.
+      permission: 'connections:manage',
       title: 'Describe ClickHouse Table',
       annotations: READ_ONLY_TOOL,
       description:

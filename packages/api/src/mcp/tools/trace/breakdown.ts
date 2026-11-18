@@ -64,6 +64,7 @@ export function registerTraceBreakdown({
   registerTool(
     'clickstack_trace_top_time_consuming_operations',
     {
+      permission: 'sources:read',
       title: 'Top Time-Consuming Operations Across Matching Traces',
       annotations: READ_ONLY_TOOL,
       description: TRACE_BREAKDOWN_DESCRIPTION,

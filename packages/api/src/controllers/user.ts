@@ -5,6 +5,7 @@ import crypto from 'crypto';
 import mongoose from 'mongoose';
 import { v4 as uuidv4 } from 'uuid';
 
+import { seedSystemRoles } from '@/controllers/role';
 import type { ObjectId } from '@/models';
 import Alert from '@/models/alert';
 import User, { type IUser } from '@/models/user';
@@ -28,6 +29,9 @@ export function hashOrgApiKey(key: string) {
   return crypto.createHash('sha256').update(key).digest('hex');
 }
 
+// `role` is populated on both branches for the same reason as findUserById:
+// RBAC reads req.user.role. Without it the Bearer path (MCP + External API v2)
+// always saw a missing role.
 export function findUserByAccessKey(accessKey: string, now = new Date()) {
   // Org keys are stored hashed; only the prefixed plaintext reaches a service
   // account, so presenting the stored hash itself never authenticates.
@@ -36,9 +40,9 @@ export function findUserByAccessKey(accessKey: string, now = new Date()) {
       accessKey: hashOrgApiKey(accessKey),
       ...ACTIVE_ORG_API_KEY,
       $or: [{ expiresAt: null }, { expiresAt: { $gt: now } }],
-    });
+    }).populate('role');
   }
-  return User.findOne({ accessKey, ...NOT_VIRTUAL });
+  return User.findOne({ accessKey, ...NOT_VIRTUAL }).populate('role');
 }
 
 /**
@@ -52,8 +56,10 @@ export function rotateUserAccessKey(userId: string | ObjectId) {
   return User.findByIdAndUpdate(userId, { accessKey: uuidv4() }, { new: true });
 }
 
+// Populated on every session request via passport's deserializeUser, so RBAC
+// middleware can read req.user.role without an extra round trip.
 export function findUserById(id: string) {
-  return User.findById(id);
+  return User.findById(id).populate('role');
 }
 
 export function createVirtualUser({
@@ -80,8 +86,55 @@ export function findUserByEmail(email: string) {
   return User.findOne({ email: email.toLowerCase() });
 }
 
+export function findUserByGoogleId(googleId: string) {
+  return User.findOne({ googleId });
+}
+
+/**
+ * Creates a user provisioned by Google SSO, at the lowest privilege.
+ *
+ * Returns null when the team has no ReadOnly role, which the caller must
+ * treat as a failed login. Creating the user anyway would be worse than
+ * refusing: `computeVerdict` fails OPEN for a role-less user on the session
+ * path, so a self-service SSO signup would land with admin-equivalent
+ * access. Roles are seeded here rather than assumed for the same reason the
+ * invite path seeds them — a team created before RBAC shipped has none.
+ */
+export async function createGoogleUser({
+  email,
+  teamId,
+  googleId,
+}: {
+  email: string;
+  teamId: string | ObjectId;
+  googleId: string;
+}) {
+  const roles = await seedSystemRoles(teamId);
+  const readOnlyRole = roles.find(r => r.name === 'ReadOnly');
+  if (!readOnlyRole) {
+    return null;
+  }
+
+  const user = new User({
+    email,
+    name: email,
+    team: teamId,
+    googleId,
+    role: readOnlyRole._id,
+  });
+  await user.save();
+  return user;
+}
+
 export function findUsersByTeam(team: string | ObjectId) {
-  return User.find({ team, ...NOT_VIRTUAL }).sort({ createdAt: 1 });
+  // `+salt` re-selects the passport-local-mongoose salt field, which the
+  // plugin marks `select: false` by default. The `hasPasswordAuth` virtual
+  // reads `this.salt`, so without this projection every user in the result
+  // would report `hasPasswordAuth: false` regardless of whether they
+  // actually have a password. Do not remove this "unused" projection.
+  return User.find({ team, ...NOT_VIRTUAL })
+    .select('+salt')
+    .sort({ createdAt: 1 });
 }
 
 // Type-guard wrapper over the shared 24-hex check; rejects the synthetic

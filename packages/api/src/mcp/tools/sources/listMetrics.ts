@@ -51,6 +51,7 @@ export function registerListMetrics({
   registerTool(
     'clickstack_list_metrics',
     {
+      permission: 'sources:read',
       title: 'List Metric Names',
       annotations: READ_ONLY_TOOL,
       description:

@@ -25,6 +25,7 @@ export function registerGetAlert({
   registerTool(
     'clickstack_get_alert',
     {
+      permission: 'alerts:read',
       title: 'Get Alert(s)',
       annotations: READ_ONLY_TOOL,
       description:

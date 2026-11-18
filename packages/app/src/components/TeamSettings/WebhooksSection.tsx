@@ -12,6 +12,7 @@ import { IconPencil, IconX } from '@tabler/icons-react';
 
 import api from '@/api';
 import { useBrandDisplayName } from '@/brand';
+import { useMyPermissions } from '@/hooks/useMyPermissions';
 import { useConfirm } from '@/useConfirm';
 import {
   getWebhookServiceConfig,
@@ -84,6 +85,11 @@ export default function WebhooksSection() {
     WebhookService.IncidentIO,
   ]);
 
+  // Webhook CRUD is webhooks: manage. A stock Member holds webhooks: read,
+  // which makes the tab visible — so the controls have to be gated separately.
+  const { can } = useMyPermissions();
+  const canManageWebhooks = can('webhooks', 'manage');
+
   const [editedWebhookId, setEditedWebhookId] = useState<string | null>(null);
 
   const allWebhooks = useMemo((): WebhookApiData[] => {
@@ -146,35 +152,39 @@ export default function WebhooksSection() {
                           )}
                         </Stack>
 
-                        <Group gap="xs">
-                          {editedWebhookId !== webhook._id ? (
-                            <>
+                        {canManageWebhooks && (
+                          <Group gap="xs">
+                            {editedWebhookId !== webhook._id ? (
+                              <>
+                                <Button
+                                  variant="subtle"
+                                  color="gray.4"
+                                  onClick={() =>
+                                    setEditedWebhookId(webhook._id)
+                                  }
+                                  size="compact-xs"
+                                  leftSection={<IconPencil size={14} />}
+                                >
+                                  Edit
+                                </Button>
+                                <DeleteWebhookButton
+                                  webhookId={webhook._id}
+                                  webhookName={webhook.name}
+                                  onSuccess={refetchWebhooks}
+                                />
+                              </>
+                            ) : (
                               <Button
                                 variant="subtle"
                                 color="gray.4"
-                                onClick={() => setEditedWebhookId(webhook._id)}
+                                onClick={() => setEditedWebhookId(null)}
                                 size="compact-xs"
-                                leftSection={<IconPencil size={14} />}
                               >
-                                Edit
+                                <IconX size={16} /> Cancel
                               </Button>
-                              <DeleteWebhookButton
-                                webhookId={webhook._id}
-                                webhookName={webhook.name}
-                                onSuccess={refetchWebhooks}
-                              />
-                            </>
-                          ) : (
-                            <Button
-                              variant="subtle"
-                              color="gray.4"
-                              onClick={() => setEditedWebhookId(null)}
-                              size="compact-xs"
-                            >
-                              <IconX size={16} /> Cancel
-                            </Button>
-                          )}
-                        </Group>
+                            )}
+                          </Group>
+                        )}
                       </Group>
                       {editedWebhookId === webhook._id && (
                         <WebhookForm
@@ -196,7 +206,7 @@ export default function WebhooksSection() {
         )}
       </Stack>
 
-      {!isAddWebhookModalOpen ? (
+      {!canManageWebhooks ? null : !isAddWebhookModalOpen ? (
         <Button
           data-testid="add-webhook-section-button"
           variant="secondary"

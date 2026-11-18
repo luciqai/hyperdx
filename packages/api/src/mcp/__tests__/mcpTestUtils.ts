@@ -51,3 +51,17 @@ export function getFirstText(result: CallToolResult): string {
   }
   return item.text;
 }
+
+/**
+ * Admin role for tests whose subject is tool behaviour, not permissions.
+ *
+ * McpContext.role is required and a null role denies every tool (the Bearer
+ * path fails closed), so a context literal without this would make every
+ * existing tool test fail with a permission error rather than exercise the
+ * tool. Permission-specific tests build their own restricted roles.
+ */
+export const MCP_TEST_ADMIN_ROLE = {
+  name: 'Admin',
+  isAdmin: true,
+  permissions: {},
+} as const;

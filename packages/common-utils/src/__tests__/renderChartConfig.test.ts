@@ -1082,8 +1082,13 @@ describe('renderChartConfig', () => {
         expect(actual).not.toMatch(
           /SELECT `__hdx_time_bucket`, "Value" FROM metrics/,
         );
+        // The 305 day range resolves to 7 day buckets, so the scan starts 7
+        // days early and the lookback samples are dropped after the deltas.
         expect(actual).toContain(
-          'WHERE (TimeUnix >= fromUnixTimestamp64Milli(1739318400000) AND TimeUnix <= fromUnixTimestamp64Milli(1765670400000))',
+          'WHERE (TimeUnix >= fromUnixTimestamp64Milli(1738713600000) AND TimeUnix <= fromUnixTimestamp64Milli(1765670400000))',
+        );
+        expect(actual).toContain(
+          'WHERE TimeUnix >= fromUnixTimestamp64Milli(1739318400000)',
         );
         expect(actual).not.toContain('toStartOfInterval');
         expect(actual).toMatchSnapshot();
@@ -1214,8 +1219,13 @@ describe('renderChartConfig', () => {
         expect(actual).not.toMatch(
           /SELECT `__hdx_time_bucket`, "Value" FROM metrics/,
         );
+        // The 305 day range resolves to 7 day buckets, so the scan starts 7
+        // days early and the lookback samples are dropped after the deltas.
         expect(actual).toContain(
-          'WHERE (TimeUnix >= fromUnixTimestamp64Milli(1739318400000) AND TimeUnix <= fromUnixTimestamp64Milli(1765670400000))',
+          'WHERE (TimeUnix >= fromUnixTimestamp64Milli(1738713600000) AND TimeUnix <= fromUnixTimestamp64Milli(1765670400000))',
+        );
+        expect(actual).toContain(
+          'WHERE TimeUnix >= fromUnixTimestamp64Milli(1739318400000)',
         );
         expect(actual).not.toContain('toStartOfInterval');
         expect(actual).toMatchSnapshot();
@@ -1486,6 +1496,231 @@ describe('renderChartConfig', () => {
         expect(sql).toContain('ORDER BY `group`[1] DESC');
       });
     });
+  });
+
+  describe('metric charts without a time axis (lookback scan)', () => {
+    // 2025-02-12 13:00:00 to 14:00:00 UTC.
+    const RANGE_START_MS = 1739365200000;
+    const RANGE_END_MS = 1739368800000;
+    const FIVE_MINUTES_MS = 5 * 60 * 1000;
+    const RANGE_START_FILTER = `TimeUnix >= fromUnixTimestamp64Milli(${RANGE_START_MS})`;
+
+    const scanFilter = (lookbackMs: number) =>
+      `WHERE (TimeUnix >= fromUnixTimestamp64Milli(${RANGE_START_MS - lookbackMs}) AND TimeUnix <= fromUnixTimestamp64Milli(${RANGE_END_MS}))`;
+
+    type MetricSelect = Exclude<BuilderChartConfig['select'], string>[number];
+
+    const renderMetricSql = async (
+      select: Partial<MetricSelect>,
+      overrides: Partial<ChartConfigWithOptDateRange> = {},
+    ) => {
+      const rendered = await renderChartConfig(
+        {
+          displayType: DisplayType.Number,
+          connection: 'test-connection',
+          metricTables: {
+            gauge: 'otel_metrics_gauge',
+            histogram: 'otel_metrics_histogram',
+            sum: 'otel_metrics_sum',
+            summary: 'otel_metrics_summary',
+            'exponential histogram': 'otel_metrics_exponential_histogram',
+          },
+          from: { databaseName: 'default', tableName: '' },
+          select: [
+            {
+              valueExpression: 'Value',
+              metricName: 'test.metric',
+              ...select,
+            },
+          ],
+          where: '',
+          whereLanguage: 'sql',
+          timestampValueExpression: 'TimeUnix',
+          dateRange: [new Date(RANGE_START_MS), new Date(RANGE_END_MS)],
+          ...overrides,
+        } as ChartConfigWithOptDateRange,
+        mockMetadata,
+        undefined,
+      );
+      return parameterizedQueryToSql(rendered).replace(/\s+/g, ' ');
+    };
+
+    const increase = {
+      aggFn: 'increase',
+      metricType: MetricsDataType.Sum,
+    } as const;
+
+    it('scans back before the range for a counter and keeps only in-range samples', async () => {
+      const sql = await renderMetricSql(increase);
+      // A 1 hour range resolves to 1 minute buckets, so the 5 minute floor applies.
+      expect(sql).toContain(scanFilter(FIVE_MINUTES_MS));
+      expect(sql).toContain(`FROM Source WHERE ${RANGE_START_FILTER} GROUP BY`);
+    });
+
+    it('scans back one auto-granularity bucket on a longer range', async () => {
+      // 24 hours resolves to 30 minute buckets.
+      const dayStartMs = RANGE_END_MS - 24 * 60 * 60 * 1000;
+      const sql = await renderMetricSql(increase, {
+        dateRange: [new Date(dayStartMs), new Date(RANGE_END_MS)],
+      });
+      expect(sql).toContain(
+        `WHERE (TimeUnix >= fromUnixTimestamp64Milli(${dayStartMs - 30 * 60 * 1000}) AND TimeUnix <= fromUnixTimestamp64Milli(${RANGE_END_MS}))`,
+      );
+      expect(sql).toContain(
+        `FROM Source WHERE TimeUnix >= fromUnixTimestamp64Milli(${dayStartMs}) GROUP BY`,
+      );
+    });
+
+    it("scans back at least the source's minimum granularity", async () => {
+      const sql = await renderMetricSql(increase, {
+        minGranularitySeconds: 15 * 60,
+      });
+      expect(sql).toContain(scanFilter(15 * 60 * 1000));
+    });
+
+    it('keeps an exclusive range start exclusive on the in-range filter', async () => {
+      const sql = await renderMetricSql(increase, {
+        dateRangeStartInclusive: false,
+      });
+      expect(sql).toContain(scanFilter(FIVE_MINUTES_MS));
+      expect(sql).toContain(
+        `FROM Source WHERE TimeUnix > fromUnixTimestamp64Milli(${RANGE_START_MS}) GROUP BY`,
+      );
+    });
+
+    it('keeps the first partial bucket of a counter when the range starts mid-bucket', async () => {
+      // 13:07:23: the 1 minute bucket holding the first samples starts at
+      // 13:07:00, before the range.
+      const unalignedStartMs = RANGE_START_MS + 443000;
+      const sql = await renderMetricSql(increase, {
+        dateRange: [new Date(unalignedStartMs), new Date(RANGE_END_MS)],
+      });
+      expect(sql).toContain(
+        `FROM Source WHERE TimeUnix >= fromUnixTimestamp64Milli(${unalignedStartMs}) GROUP BY`,
+      );
+      expect(sql).toMatch(/AS "Value" FROM Bucketed$/);
+      expect(sql).not.toContain('`__hdx_time_bucket2` >=');
+    });
+
+    it('keeps the first partial bucket on an unaligned range with an exclusive start', async () => {
+      const unalignedStartMs = RANGE_START_MS + 443000;
+      const sql = await renderMetricSql(increase, {
+        dateRange: [new Date(unalignedStartMs), new Date(RANGE_END_MS)],
+        dateRangeStartInclusive: false,
+      });
+      expect(sql).toContain(
+        `FROM Source WHERE TimeUnix > fromUnixTimestamp64Milli(${unalignedStartMs}) GROUP BY`,
+      );
+      expect(sql).toMatch(/AS "Value" FROM Bucketed$/);
+      expect(sql).not.toContain('FROM Bucketed WHERE');
+    });
+
+    it('reads the last value of a counter without an aggregation with no outer range filter', async () => {
+      const unalignedStartMs = RANGE_START_MS + 443000;
+      const sql = await renderMetricSql(
+        { metricType: MetricsDataType.Sum },
+        { dateRange: [new Date(unalignedStartMs), new Date(RANGE_END_MS)] },
+      );
+      expect(sql).toMatch(/SELECT last_value\(Sum\) AS "Value" FROM Bucketed$/);
+    });
+
+    it('limits a grouped counter to its top groups with only the membership predicate in the outer WHERE', async () => {
+      const sql = await renderMetricSql(increase, {
+        dateRange: [new Date(RANGE_START_MS + 443000), new Date(RANGE_END_MS)],
+        groupBy: 'ServiceName',
+        displayType: DisplayType.Table,
+      });
+      expect(sql).toMatch(
+        /AS "Value",ServiceName FROM Bucketed WHERE \(tuple\(ServiceName\) IN \(SELECT `group` FROM TopGroups\)\) GROUP BY ServiceName$/,
+      );
+      expect(sql).not.toContain('`__hdx_time_bucket2` >=');
+    });
+
+    it('still discards the padded buckets of a counter time chart', async () => {
+      const sql = await renderMetricSql(increase, {
+        displayType: DisplayType.Line,
+        granularity: '1 minute',
+      });
+      expect(sql).toContain(
+        `FROM Bucketed WHERE (\`__hdx_time_bucket2\` >= fromUnixTimestamp64Milli(${RANGE_START_MS}) AND \`__hdx_time_bucket2\` <= fromUnixTimestamp64Milli(${RANGE_END_MS}))`,
+      );
+    });
+
+    it('leaves a counter with a granularity on its one-bucket padding', async () => {
+      const sql = await renderMetricSql(increase, {
+        displayType: DisplayType.Line,
+        granularity: '1 minute',
+      });
+      expect(sql).toContain(
+        `toStartOfInterval(fromUnixTimestamp64Milli(${RANGE_START_MS}), INTERVAL 1 minute) - INTERVAL 1 minute`,
+      );
+      expect(sql).not.toContain('FROM Source WHERE');
+    });
+
+    it('does not scan back for a counter when there is no date range', async () => {
+      const sql = await renderMetricSql(increase, { dateRange: undefined });
+      expect(sql).not.toContain('FROM Source WHERE');
+      expect(sql).not.toContain(scanFilter(FIVE_MINUTES_MS));
+    });
+
+    it('does not scan back for a counter rendered as a raw SQL template', async () => {
+      // The flag is set by the raw SQL builder, not part of the public config type.
+      const sql = await renderMetricSql(increase, {
+        isRenderingRawSqlTemplate: true,
+      } as Partial<ChartConfigWithOptDateRange>);
+      expect(sql).not.toContain('FROM Source WHERE');
+      expect(sql).not.toContain(scanFilter(FIVE_MINUTES_MS));
+      // The scan keeps the template's own time bound, not a padded timestamp.
+      expect(sql).not.toContain(String(RANGE_START_MS - FIVE_MINUTES_MS));
+      expect(sql).toContain('$__fromTime');
+    });
+
+    it('does not scan back for a counter read as its raw cumulative value', async () => {
+      const sql = await renderMetricSql({ metricType: MetricsDataType.Sum });
+      expect(sql).toContain(scanFilter(0));
+      expect(sql).not.toContain('FROM Source WHERE');
+    });
+
+    it('does not scan back for a gauge', async () => {
+      const sql = await renderMetricSql({
+        aggFn: 'avg',
+        metricType: MetricsDataType.Gauge,
+      });
+      expect(sql).toContain(scanFilter(0));
+      expect(sql).not.toContain(scanFilter(FIVE_MINUTES_MS));
+    });
+
+    it.each([
+      [
+        MetricsDataType.Histogram,
+        { aggFn: 'count' },
+        `sum(delta) AS "Value" FROM source WHERE ${RANGE_START_FILTER} ) SELECT`,
+      ],
+      [
+        MetricsDataType.Histogram,
+        { aggFn: 'quantile', level: 0.5 },
+        `) ) WHERE ${RANGE_START_FILTER} GROUP BY MetricName, ExplicitBounds`,
+      ],
+      [
+        MetricsDataType.ExponentialHistogram,
+        { aggFn: 'count' },
+        `sum(delta) AS "Value" FROM source WHERE ${RANGE_START_FILTER} ) SELECT`,
+      ],
+      [
+        MetricsDataType.ExponentialHistogram,
+        { aggFn: 'quantile', level: 0.5 },
+        `FROM normalized_deltas WHERE ${RANGE_START_FILTER} ),`,
+      ],
+    ] as const)(
+      'scans back before the range for a %s (%o) and keeps only in-range samples',
+      async (metricType, select, inRangeFilter) => {
+        const sql = await renderMetricSql({ ...select, metricType });
+        expect(sql).toContain(scanFilter(FIVE_MINUTES_MS));
+        expect(sql).toContain(inRangeFilter);
+        // One scan bound and one in-range filter: nothing else filters on time.
+        expect(sql.split('fromUnixTimestamp64Milli(')).toHaveLength(4);
+      },
+    );
   });
 
   describe('containing CTE clauses', () => {

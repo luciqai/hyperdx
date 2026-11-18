@@ -55,6 +55,8 @@ export function registerPromql({ context, registerTool }: ToolRegistrar) {
   registerTool(
     'clickstack_promql',
     {
+      // Same gate as the /v1/prometheus query routes: it reads a source.
+      permission: 'sources:read',
       title: 'PromQL Query',
       annotations: READ_ONLY_TOOL,
       description:

@@ -92,6 +92,11 @@ export const FIXED_TIME_BUCKET_EXPR_ALIAS = '__hdx_time_bucket';
 // Maximum number of distinct groups shown in a time chart when using 'increase' with a groupBy.
 const INCREASE_MAX_NUM_GROUPS = 20;
 
+// Floors the lookback of a chart without a time axis, so a short range still
+// reaches a few reporting intervals back. Same value as Prometheus' default
+// lookback delta.
+const METRIC_LOOKBACK_FLOOR_SECONDS = 5 * 60;
+
 export function isUsingGroupBy(
   chartConfig: BuilderChartConfigWithOptDateRange,
 ): chartConfig is Omit<BuilderChartConfigWithDateRange, 'groupBy'> & {
@@ -2055,6 +2060,56 @@ async function renderMetricWhere(
     : where;
 }
 
+/**
+ * A time chart pads its scan back by one bucket so the first cumulative sample
+ * of each series has a predecessor to diff against. A chart without a time
+ * axis (number, pie, table) has no bucket to pad by: scanned from the range
+ * start, that sample's delta is 0 and the chart reads lower than a time chart
+ * over the same range.
+ *
+ * Returns the range such a chart scans instead: the start moved back by one
+ * auto-granularity bucket, with a floor for short ranges. Undefined (no
+ * lookback) when the chart has a granularity (the scan is already padded),
+ * when it has no date range, or when it is rendered as a raw SQL template
+ * (the template supplies its own time bounds).
+ */
+function getMetricLookbackDateRange(
+  chartConfig: BuilderChartConfigWithOptDateRangeEx,
+): [Date, Date] | undefined {
+  if (
+    chartConfig.granularity != null ||
+    chartConfig.dateRange == null ||
+    chartConfig.isRenderingRawSqlTemplate
+  ) {
+    return undefined;
+  }
+  const [start, end] = chartConfig.dateRange;
+  const lookbackSeconds = Math.max(
+    convertGranularityToSeconds(
+      convertDateRangeToGranularityString(
+        chartConfig.dateRange,
+        undefined,
+        chartConfig.minGranularitySeconds,
+      ),
+    ),
+    METRIC_LOOKBACK_FLOOR_SECONDS,
+  );
+  return [new Date(start.getTime() - lookbackSeconds * 1000), end];
+}
+
+/**
+ * Keeps the samples of the requested range once their deltas are computed
+ * over the lookback scan. The scan's own WHERE already bounds the end.
+ */
+function renderMetricRangeStartFilter(
+  chartConfig: BuilderChartConfigWithOptDateRangeEx & {
+    dateRange: [Date, Date];
+  },
+): ChSql {
+  const startOp = (chartConfig.dateRangeStartInclusive ?? true) ? '>=' : '>';
+  return chSql`TimeUnix ${startOp} fromUnixTimestamp64Milli(${{ Int64: chartConfig.dateRange[0].getTime() }})`;
+}
+
 async function translateMetricChartConfig(
   chartConfig: BuilderChartConfigWithOptDateRangeEx,
   metadata: Metadata,
@@ -2217,12 +2272,29 @@ async function translateMetricChartConfig(
       minGranularitySeconds: chartConfig.minGranularitySeconds,
     });
 
+    // Only the rate needs a predecessor sample; the raw cumulative value
+    // (no aggFn) reads the range as is.
+    const lookbackDateRange = _select.aggFn
+      ? getMetricLookbackDateRange(chartConfig)
+      : undefined;
+    const rangeStartFilter =
+      lookbackDateRange && chartConfig.dateRange
+        ? renderMetricRangeStartFilter({
+            ...chartConfig,
+            dateRange: chartConfig.dateRange,
+          })
+        : undefined;
+
     // Render the where clause to limit data selection on the source CTE but also search forward/back one
     // bucket window to ensure that there is enough data to compute a reasonable value on the ends of the
     // series.
     const where = await renderMetricWhere(
       {
         ...chartConfig,
+        ...(lookbackDateRange && {
+          dateRange: lookbackDateRange,
+          dateRangeStartInclusive: true,
+        }),
         from: {
           ...from,
           tableName: metricTables[MetricsDataType.Sum],
@@ -2351,7 +2423,7 @@ async function translateMetricChartConfig(
                 ${computedColumns.project('Flags')},
                 ${computedColumns.project('AggregationTemporality')},
                 ${computedColumns.project('IsMonotonic')}${{ UNSAFE_RAW_SQL: computedColumns.aggregate }}
-              FROM Source
+              FROM Source${rangeStartFilter ? chSql` WHERE ${rangeStartFilter}` : ''}
               GROUP BY AttributesHash, \`${timeBucketCol}\`${{ UNSAFE_RAW_SQL: computedColumns.groupBy }}
               ORDER BY AttributesHash, \`${timeBucketCol}\`
             )
@@ -2471,6 +2543,12 @@ async function translateMetricChartConfig(
       whereLanguage: shouldApplyIncreaseGroupLimit
         ? 'sql'
         : restChartConfig.whereLanguage,
+      // A time chart discards its padded buckets here. Without a time axis
+      // the CTEs already keep only in-range samples, and the bucket merely
+      // groups them: filtering on its start would drop the first bucket of a
+      // range that starts mid-bucket.
+      dateRange:
+        chartConfig.granularity != null ? restChartConfig.dateRange : undefined,
       timestampValueExpression: `\`${timeBucketCol}\``,
     };
   } else if (isHistogram || isExponentialHistogram) {
@@ -2506,6 +2584,15 @@ async function translateMetricChartConfig(
           : chartConfig.granularity,
     } satisfies BuilderChartConfigWithOptDateRangeEx;
 
+    const lookbackDateRange = getMetricLookbackDateRange(chartConfig);
+    const rangeStartFilter =
+      lookbackDateRange && chartConfig.dateRange
+        ? renderMetricRangeStartFilter({
+            ...chartConfig,
+            dateRange: chartConfig.dateRange,
+          })
+        : undefined;
+
     const hasGranularity = isUsingGranularity(cteChartConfig);
     const timeBucketSelect = hasGranularity
       ? timeBucketExpr({
@@ -2516,7 +2603,16 @@ async function translateMetricChartConfig(
           minGranularitySeconds: cteChartConfig.minGranularitySeconds,
         })
       : undefined;
-    const where = await renderMetricWhere(cteChartConfig, metadata);
+    const where = await renderMetricWhere(
+      lookbackDateRange
+        ? {
+            ...cteChartConfig,
+            dateRange: lookbackDateRange,
+            dateRangeStartInclusive: true,
+          }
+        : cteChartConfig,
+      metadata,
+    );
 
     // Time bucket grouping is being handled separately, so make sure to ignore the granularity
     // logic for histograms specifically.
@@ -2544,6 +2640,7 @@ async function translateMetricChartConfig(
         metricType,
       }),
       where,
+      rangeStartFilter,
       valueAlias,
     };
 
@@ -2584,7 +2681,8 @@ async function translateMetricChartConfig(
         : restChartConfig.orderBy,
       where: '', // clear up the condition since the where clause is already applied at the upstream CTE
       // Timeseries queries discard padded buckets here. Non-timeseries queries
-      // scan only the visible range and have no time dimension to filter.
+      // drop the lookback samples inside the CTEs and have no time dimension
+      // to filter.
       dateRange: hasGranularity ? restChartConfig.dateRange : undefined,
       groupBy: undefined,
       granularity: undefined, // time bucketing and granularity is applied at the source CTE

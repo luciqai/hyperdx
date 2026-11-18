@@ -3,8 +3,11 @@ import { getHeatmapMode } from '@hyperdx/common-utils/dist/core/heatmap';
 import { getMetadata } from '@hyperdx/common-utils/dist/core/metadata';
 import { PromqlChartError } from '@hyperdx/common-utils/dist/core/promqlChart';
 import {
+  convertGranularityToSeconds,
   convertToCategoricalChartConfig,
+  getAlignedDateRange,
   getFirstTimestampValueExpression,
+  getTimeChartGranularity,
   isTimeSeriesDisplayType,
   splitAndTrimWithBracket,
 } from '@hyperdx/common-utils/dist/core/utils';
@@ -472,6 +475,44 @@ function toPlainMetricTables(
     : metricTables;
 }
 
+/**
+ * The granularity, date range and end bound a time chart is queried with.
+ * Mirrors the app's convertToTimeChartConfig (packages/app/src/ChartUtils.tsx)
+ * so a tile queried here returns the buckets the dashboard draws: the range
+ * is widened to whole buckets unless the tile opts out, and its end is
+ * exclusive. An aligned range ends where the next bucket starts, so an
+ * inclusive end returns that bucket as an extra trailing point.
+ */
+export function resolveTimeChartRange({
+  granularity,
+  dateRange,
+  alignDateRangeToGranularity,
+  minGranularitySeconds,
+}: {
+  granularity?: string;
+  dateRange: [Date, Date];
+  alignDateRangeToGranularity?: boolean;
+  minGranularitySeconds?: number;
+}): {
+  granularity: string;
+  dateRange: [Date, Date];
+  dateRangeEndInclusive: false;
+} {
+  const resolvedGranularity = getTimeChartGranularity(
+    granularity,
+    dateRange,
+    minGranularitySeconds,
+  );
+  return {
+    granularity: resolvedGranularity,
+    dateRange:
+      alignDateRangeToGranularity === false
+        ? dateRange
+        : getAlignedDateRange(dateRange, resolvedGranularity),
+    dateRangeEndInclusive: false,
+  };
+}
+
 export async function runConfigTile(
   teamId: string,
   tile: ExternalDashboardTileWithId,
@@ -629,25 +670,38 @@ export async function runConfigTile(
           }
         : {};
 
+    // Floors auto granularity at the source's reporting interval, as the app
+    // does for every tile of a metric source.
+    const minGranularitySeconds =
+      isMetricSource && source.minAutoGranularity
+        ? convertGranularityToSeconds(source.minAutoGranularity)
+        : undefined;
+
     // Re-inject granularity for time charts. The MCP tool input carries
     // it, but buildTile parses through externalDashboardTileSchemaWithId,
     // whose line/stacked_bar schemas don't declare `granularity`, so Zod
     // strips it. Without this the renderer's `granularity != null` guard
     // fails and no __hdx_time_bucket is emitted — every timeseries call
-    // collapses to one row per group. Default to "auto" so the renderer
-    // picks a bucket, mirroring the REST charts path
-    // (packages/api/src/routers/external-api/v2/charts.ts:289).
-    // Series heatmaps bucket by time like line charts; distribution heatmaps
-    // compute their own buckets. Search tiles intentionally have no
-    // granularity (handled above).
+    // collapses to one row per group.
+    // Series heatmaps bucket by time like line charts and keep the renderer's
+    // own "auto"; distribution heatmaps compute their own buckets. Search
+    // tiles intentionally have no granularity (handled above).
     const isSeriesHeatmap =
       builderConfig.displayType === DisplayType.Heatmap &&
       getHeatmapMode(builderConfig) === 'series';
-    const granularityOverride =
-      !isSearch &&
-      (isTimeSeriesDisplayType(builderConfig.displayType) || isSeriesHeatmap)
-        ? { granularity: options?.granularity ?? 'auto' }
-        : {};
+    const timeChartOverrides = isSearch
+      ? {}
+      : isTimeSeriesDisplayType(builderConfig.displayType)
+        ? resolveTimeChartRange({
+            granularity: options?.granularity,
+            dateRange: [startDate, endDate],
+            alignDateRangeToGranularity:
+              builderConfig.alignDateRangeToGranularity,
+            minGranularitySeconds,
+          })
+        : isSeriesHeatmap
+          ? { granularity: options?.granularity ?? 'auto' }
+          : {};
 
     // having/limit come from the MCP table tool's own inputs, not from the
     // tile, so dashboard tiles and the app keep their current behaviour.
@@ -667,7 +721,6 @@ export async function runConfigTile(
       ...searchOverrides,
       ...tableToolOverrides,
       ...metricSelectOverrides,
-      ...granularityOverride,
       from: {
         databaseName: source.from.databaseName,
         tableName: isMetricSource ? '' : source.from.tableName,
@@ -680,6 +733,9 @@ export async function runConfigTile(
       implicitColumnExpression: implicitColumn,
       useTextIndexForImplicitColumn,
       dateRange: [startDate, endDate] as [Date, Date],
+      // After dateRange: a time chart replaces it with its bucket-aligned range.
+      ...timeChartOverrides,
+      minGranularitySeconds,
       variables: options?.variables,
     } satisfies ChartConfigWithDateRange;
 

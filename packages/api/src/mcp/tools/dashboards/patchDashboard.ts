@@ -38,6 +38,7 @@ export function registerPatchDashboard({
   registerTool(
     'clickstack_patch_dashboard',
     {
+      permission: 'dashboards:manage',
       title: 'Patch Dashboard',
       annotations: IDEMPOTENT_DESTRUCTIVE_TOOL,
       description:
