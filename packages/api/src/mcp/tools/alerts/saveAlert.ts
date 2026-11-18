@@ -8,7 +8,7 @@ import {
   updateAlert,
   validateAlertInput,
 } from '@/controllers/alerts';
-import { UPSERT_TOOL } from '@/mcp/tools/annotations';
+import { OPEN_WORLD_UPSERT_TOOL } from '@/mcp/tools/annotations';
 import type { ToolRegistrar } from '@/mcp/tools/types';
 import {
   formatZodIssues,
@@ -44,7 +44,7 @@ export function registerSaveAlert({
     {
       permission: 'alerts:manage',
       title: 'Create or Update Alert',
-      annotations: UPSERT_TOOL,
+      annotations: OPEN_WORLD_UPSERT_TOOL,
       description:
         'Create a new alert (omit id) or update an existing one (provide id). ' +
         'Alerts monitor a saved search, a dashboard tile, or an inline chart ' +
