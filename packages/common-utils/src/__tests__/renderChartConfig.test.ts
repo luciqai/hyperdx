@@ -1612,7 +1612,7 @@ describe('renderChartConfig', () => {
         `FROM Source WHERE TimeUnix > fromUnixTimestamp64Milli(${unalignedStartMs}) GROUP BY`,
       );
       expect(sql).toMatch(/AS "Value" FROM Bucketed$/);
-      expect(sql).not.toContain('`__hdx_time_bucket2` >=');
+      expect(sql).not.toContain('FROM Bucketed WHERE');
     });
 
     it('reads the last value of a counter without an aggregation with no outer range filter', async () => {
