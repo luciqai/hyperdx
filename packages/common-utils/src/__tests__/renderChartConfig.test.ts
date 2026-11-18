@@ -1602,6 +1602,40 @@ describe('renderChartConfig', () => {
       expect(sql).not.toContain('`__hdx_time_bucket2` >=');
     });
 
+    it('keeps the first partial bucket on an unaligned range with an exclusive start', async () => {
+      const unalignedStartMs = RANGE_START_MS + 443000;
+      const sql = await renderMetricSql(increase, {
+        dateRange: [new Date(unalignedStartMs), new Date(RANGE_END_MS)],
+        dateRangeStartInclusive: false,
+      });
+      expect(sql).toContain(
+        `FROM Source WHERE TimeUnix > fromUnixTimestamp64Milli(${unalignedStartMs}) GROUP BY`,
+      );
+      expect(sql).toMatch(/AS "Value" FROM Bucketed$/);
+      expect(sql).not.toContain('`__hdx_time_bucket2` >=');
+    });
+
+    it('reads the last value of a counter without an aggregation with no outer range filter', async () => {
+      const unalignedStartMs = RANGE_START_MS + 443000;
+      const sql = await renderMetricSql(
+        { metricType: MetricsDataType.Sum },
+        { dateRange: [new Date(unalignedStartMs), new Date(RANGE_END_MS)] },
+      );
+      expect(sql).toMatch(/SELECT last_value\(Sum\) AS "Value" FROM Bucketed$/);
+    });
+
+    it('limits a grouped counter to its top groups with only the membership predicate in the outer WHERE', async () => {
+      const sql = await renderMetricSql(increase, {
+        dateRange: [new Date(RANGE_START_MS + 443000), new Date(RANGE_END_MS)],
+        groupBy: 'ServiceName',
+        displayType: DisplayType.Table,
+      });
+      expect(sql).toMatch(
+        /AS "Value",ServiceName FROM Bucketed WHERE \(tuple\(ServiceName\) IN \(SELECT `group` FROM TopGroups\)\) GROUP BY ServiceName$/,
+      );
+      expect(sql).not.toContain('`__hdx_time_bucket2` >=');
+    });
+
     it('still discards the padded buckets of a counter time chart', async () => {
       const sql = await renderMetricSql(increase, {
         displayType: DisplayType.Line,
