@@ -2543,6 +2543,12 @@ async function translateMetricChartConfig(
       whereLanguage: shouldApplyIncreaseGroupLimit
         ? 'sql'
         : restChartConfig.whereLanguage,
+      // A time chart discards its padded buckets here. Without a time axis
+      // the CTEs already keep only in-range samples, and the bucket merely
+      // groups them: filtering on its start would drop the first bucket of a
+      // range that starts mid-bucket.
+      dateRange:
+        chartConfig.granularity != null ? restChartConfig.dateRange : undefined,
       timestampValueExpression: `\`${timeBucketCol}\``,
     };
   } else if (isHistogram || isExponentialHistogram) {

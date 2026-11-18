@@ -1588,6 +1588,30 @@ describe('renderChartConfig', () => {
       );
     });
 
+    it('keeps the first partial bucket of a counter when the range starts mid-bucket', async () => {
+      // 13:07:23: the 1 minute bucket holding the first samples starts at
+      // 13:07:00, before the range.
+      const unalignedStartMs = RANGE_START_MS + 443000;
+      const sql = await renderMetricSql(increase, {
+        dateRange: [new Date(unalignedStartMs), new Date(RANGE_END_MS)],
+      });
+      expect(sql).toContain(
+        `FROM Source WHERE TimeUnix >= fromUnixTimestamp64Milli(${unalignedStartMs}) GROUP BY`,
+      );
+      expect(sql).toMatch(/AS "Value" FROM Bucketed$/);
+      expect(sql).not.toContain('`__hdx_time_bucket2` >=');
+    });
+
+    it('still discards the padded buckets of a counter time chart', async () => {
+      const sql = await renderMetricSql(increase, {
+        displayType: DisplayType.Line,
+        granularity: '1 minute',
+      });
+      expect(sql).toContain(
+        `FROM Bucketed WHERE (\`__hdx_time_bucket2\` >= fromUnixTimestamp64Milli(${RANGE_START_MS}) AND \`__hdx_time_bucket2\` <= fromUnixTimestamp64Milli(${RANGE_END_MS}))`,
+      );
+    });
+
     it('leaves a counter with a granularity on its one-bucket padding', async () => {
       const sql = await renderMetricSql(increase, {
         displayType: DisplayType.Line,
