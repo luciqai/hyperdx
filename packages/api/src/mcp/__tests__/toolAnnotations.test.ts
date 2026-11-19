@@ -1,9 +1,13 @@
 import { McpContext } from '@/mcp/tools/types';
 
-import { createTestClient } from './mcpTestUtils';
+import { createTestClient, MCP_TEST_ADMIN_ROLE } from './mcpTestUtils';
 
 describe('MCP tool annotations', () => {
-  const context: McpContext = { teamId: 'team-id', userId: 'user-id' };
+  const context: McpContext = {
+    teamId: 'team-id',
+    userId: 'user-id',
+    role: MCP_TEST_ADMIN_ROLE,
+  };
 
   it('declares every behavior hint as a boolean on every tool', async () => {
     const client = await createTestClient(context);

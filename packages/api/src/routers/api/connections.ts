@@ -12,8 +12,8 @@ import {
 } from '@/controllers/connection';
 import { connectionServesPrometheusHttpApi } from '@/controllers/promql';
 import { getNonNullUserWithTeam } from '@/middleware/auth';
-import { objectIdSchema } from '@/utils/zod';
 import { requirePermission } from '@/middleware/rbac';
+import { objectIdSchema } from '@/utils/zod';
 
 const router = express.Router();
 
@@ -132,6 +132,7 @@ router.put(
 // Onboarding uses it to pin a new PromQL source to that API.
 router.get(
   '/:id/prometheus-http-api',
+  requirePermission('connections', 'read'),
   validateRequest({ params: z.object({ id: objectIdSchema }) }),
   async (req, res, next) => {
     try {
@@ -157,9 +158,6 @@ router.get(
   },
 );
 
-router.delete('/:id', async (req, res, next) => {
-  try {
-    const { teamId } = getNonNullUserWithTeam(req);
 router.delete(
   '/:id',
   requirePermission('connections', 'manage'),

@@ -2,7 +2,13 @@ import type { Implementation } from '@modelcontextprotocol/sdk/types.js';
 
 import { McpContext } from '@/mcp/tools/types';
 
-const context: McpContext = { teamId: 'team-id', userId: 'user-id' };
+import { MCP_TEST_ADMIN_ROLE } from './mcpTestUtils';
+
+const context: McpContext = {
+  teamId: 'team-id',
+  userId: 'user-id',
+  role: MCP_TEST_ADMIN_ROLE,
+};
 
 async function getServerInfo(
   frontendUrl: string,

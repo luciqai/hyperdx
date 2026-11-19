@@ -1,9 +1,13 @@
 import { McpContext } from '@/mcp/tools/types';
 
-import { createTestClient } from './mcpTestUtils';
+import { createTestClient, MCP_TEST_ADMIN_ROLE } from './mcpTestUtils';
 
 describe('MCP tool descriptions', () => {
-  const context: McpContext = { teamId: 'team-id', userId: 'user-id' };
+  const context: McpContext = {
+    teamId: 'team-id',
+    userId: 'user-id',
+    role: MCP_TEST_ADMIN_ROLE,
+  };
 
   // Claude Code truncates tool descriptions and server instructions past
   // this many UTF-8 bytes.
