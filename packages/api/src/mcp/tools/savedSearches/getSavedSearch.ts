@@ -17,6 +17,7 @@ export function registerGetSavedSearch({
   registerTool(
     'clickstack_get_saved_search',
     {
+      permission: 'savedSearches:read',
       title: 'Get Saved Search(es)',
       annotations: READ_ONLY_TOOL,
       description:

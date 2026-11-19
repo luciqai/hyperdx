@@ -105,6 +105,7 @@ export function registerSaveWebhook({
   registerTool(
     'clickstack_save_webhook',
     {
+      permission: 'webhooks:manage',
       title: 'Create or Update Webhook',
       annotations: OPEN_WORLD_UPSERT_TOOL,
       description:

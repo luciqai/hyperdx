@@ -16,6 +16,7 @@ export function registerDeleteWebhook({
   registerTool(
     'clickstack_delete_webhook',
     {
+      permission: 'webhooks:manage',
       title: 'Delete Webhook',
       annotations: IDEMPOTENT_DESTRUCTIVE_TOOL,
       description:

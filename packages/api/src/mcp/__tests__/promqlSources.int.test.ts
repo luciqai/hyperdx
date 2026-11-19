@@ -18,7 +18,12 @@ import {
 import Connection from '@/models/connection';
 import { Source } from '@/models/source';
 
-import { callTool, createTestClient, getFirstText } from './mcpTestUtils';
+import {
+  callTool,
+  createTestClient,
+  getFirstText,
+  MCP_TEST_ADMIN_ROLE,
+} from './mcpTestUtils';
 
 const mockFetch = jest.mocked(global.fetch);
 const { realFetch } = globalThis as unknown as { realFetch: typeof fetch };
@@ -39,6 +44,7 @@ describe('MCP PromQL sources', () => {
     client = await createTestClient({
       teamId: team._id.toString(),
       userId: user._id.toString(),
+      role: MCP_TEST_ADMIN_ROLE,
       promqlEnabled,
     });
   };

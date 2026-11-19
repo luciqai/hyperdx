@@ -17,6 +17,7 @@ export function registerGetDashboardTile({
   registerTool(
     'clickstack_get_dashboard_tile',
     {
+      permission: 'dashboards:read',
       title: 'Get a Single Dashboard Tile',
       annotations: READ_ONLY_TOOL,
       description:

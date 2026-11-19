@@ -1,0 +1,1242 @@
+<title>RBAC — UI/UX mockups (slice A)</title>
+
+<style>
+  /* ============================================================
+     Tokens — mirrored from packages/app/src/theme/themes/hyperdx/
+     Product chrome must read as the real product, so these are the
+     app's own values, not invented ones.
+     ============================================================ */
+  :root {
+    color-scheme: light;
+
+    --ground:       #ffffff;
+    --sunken:       #fafafc;
+    --panel:        #ffffff;
+    --muted:        #f6f6fa;
+    --field:        #f9f9fc;
+    --stripe:       rgb(0 0 0 / 3%);
+
+    --border:       #e6e6ee;
+    --border-strong:#D7D8DB;
+
+    --text:         #1A1B1E;
+    --text-2:       #5f5f6e;
+    --text-3:       #868691;
+
+    --brand:        #00a475;
+    --brand-ink:    #00674e;
+    --brand-wash:   #eafff6;
+
+    --danger:       #c92a2a;
+    --danger-wash:  #fff5f5;
+    --warning:      #a86b00;
+    --warning-wash: #fff9db;
+    --info:         #1971c2;
+    --info-wash:    #e7f5ff;
+
+    --pin-ink:      #ffffff;
+
+    --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+            "Helvetica Neue", Arial, sans-serif;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+            "Liberation Mono", monospace;
+
+    --r-sm: 3px;
+    --r-md: 5px;
+    --r-lg: 8px;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      color-scheme: dark;
+
+      --ground:       #101113;
+      --sunken:       #08080a;
+      --panel:        #1A1B1E;
+      --muted:        #141517;
+      --field:        #1A1B1E;
+      --stripe:       rgb(255 255 255 / 4%);
+
+      --border:       #25262B;
+      --border-strong:#373A40;
+
+      --text:         #C1C2C5;
+      --text-2:       #909296;
+      --text-3:       #5C5F66;
+
+      --brand:        #25e2a5;
+      --brand-ink:    #63f2bf;
+      --brand-wash:   #0d2913;
+
+      --danger:       #ff8787;
+      --danger-wash:  #3d0d0d;
+      --warning:      #ffd43b;
+      --warning-wash: #3c3310;
+      --info:         #74c0fc;
+      --info-wash:    #071e34;
+
+      --pin-ink:      #101113;
+    }
+  }
+
+  /* Viewer's explicit toggle must win over the OS preference, both ways. */
+  :root[data-theme="light"] {
+    color-scheme: light;
+    --ground: #ffffff;  --sunken: #fafafc;  --panel: #ffffff;
+    --muted: #f6f6fa;   --field: #f9f9fc;   --stripe: rgb(0 0 0 / 3%);
+    --border: #e6e6ee;  --border-strong: #D7D8DB;
+    --text: #1A1B1E;    --text-2: #5f5f6e;  --text-3: #868691;
+    --brand: #00a475;   --brand-ink: #00674e; --brand-wash: #eafff6;
+    --danger: #c92a2a;  --danger-wash: #fff5f5;
+    --warning: #a86b00; --warning-wash: #fff9db;
+    --info: #1971c2;    --info-wash: #e7f5ff;
+    --pin-ink: #ffffff;
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --ground: #101113;  --sunken: #08080a;  --panel: #1A1B1E;
+    --muted: #141517;   --field: #1A1B1E;   --stripe: rgb(255 255 255 / 4%);
+    --border: #25262B;  --border-strong: #373A40;
+    --text: #C1C2C5;    --text-2: #909296;  --text-3: #5C5F66;
+    --brand: #25e2a5;   --brand-ink: #63f2bf; --brand-wash: #0d2913;
+    --danger: #ff8787;  --danger-wash: #3d0d0d;
+    --warning: #ffd43b; --warning-wash: #3c3310;
+    --info: #74c0fc;    --info-wash: #071e34;
+    --pin-ink: #101113;
+  }
+
+  /* ============================================================
+     Document shell
+     ============================================================ */
+  body {
+    margin: 0;
+    background: var(--sunken);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 15px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap {
+    max-width: 1080px;
+    margin: 0 auto;
+    padding: 56px 24px 96px;
+    display: flex;
+    flex-direction: column;
+    gap: 64px;
+  }
+
+  a { color: var(--brand); }
+  :focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+
+  /* Document voice — mono, uppercase, quiet. Never used inside a mockup. */
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--text-3);
+    margin: 0;
+  }
+
+  h1 {
+    font-size: clamp(28px, 4vw, 40px);
+    line-height: 1.15;
+    letter-spacing: -.02em;
+    margin: 10px 0 0;
+    text-wrap: balance;
+  }
+  h2 {
+    font-size: 21px;
+    letter-spacing: -.01em;
+    margin: 0;
+    text-wrap: balance;
+  }
+  h3 { font-size: 15px; margin: 0; }
+
+  .lede {
+    max-width: 64ch;
+    color: var(--text-2);
+    margin: 14px 0 0;
+  }
+
+  header.doc { border-bottom: 1px solid var(--border); padding-bottom: 32px; }
+
+  .meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 20px;
+  }
+  .meta span {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: .04em;
+    padding: 4px 9px;
+    border: 1px solid var(--border);
+    border-radius: 100px;
+    color: var(--text-2);
+    background: var(--panel);
+  }
+
+  section.block { display: flex; flex-direction: column; gap: 18px; }
+
+  .block-head { display: flex; flex-direction: column; gap: 6px; }
+  .block-head p { margin: 0; color: var(--text-2); max-width: 68ch; }
+
+  /* ============================================================
+     Screen bezel — frames a faithful render of the product
+     ============================================================ */
+  .screen {
+    background: var(--ground);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--r-lg);
+    overflow: hidden;
+  }
+  .screen-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 9px 14px;
+    background: var(--muted);
+    border-bottom: 1px solid var(--border);
+  }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--border-strong); }
+  .screen-path {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-3);
+    margin-left: 6px;
+  }
+
+  .screen-body { padding: 22px; }
+
+  /* Two-column: mockup + annotation rail */
+  .split {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 260px;
+    gap: 22px;
+    align-items: start;
+  }
+  @media (max-width: 860px) {
+    .split { grid-template-columns: minmax(0, 1fr); }
+  }
+
+  .rail { display: flex; flex-direction: column; gap: 14px; }
+  .note {
+    display: grid;
+    grid-template-columns: 20px minmax(0, 1fr);
+    gap: 9px;
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--text-2);
+  }
+  .note b { color: var(--text); font-weight: 600; }
+  .note code {
+    font-family: var(--mono);
+    font-size: 12px;
+    background: var(--muted);
+    border: 1px solid var(--border);
+    border-radius: var(--r-sm);
+    padding: 0 4px;
+    color: var(--text);
+  }
+
+  .pin {
+    width: 20px; height: 20px;
+    border-radius: 50%;
+    background: var(--brand);
+    color: var(--pin-ink);
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 700;
+    display: grid;
+    place-items: center;
+    flex: none;
+  }
+  .pin.inline {
+    display: inline-grid;
+    vertical-align: middle;
+    margin: 0 2px;
+    width: 18px; height: 18px;
+    font-size: 10px;
+  }
+
+  /* ============================================================
+     Product chrome — replicated Mantine-ish components
+     ============================================================ */
+  .tabs {
+    display: flex;
+    gap: 2px;
+    border-bottom: 1px solid var(--border);
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .tabs::-webkit-scrollbar { display: none; }
+  .tab {
+    padding: 9px 14px;
+    font-size: 13.5px;
+    color: var(--text-2);
+    border-bottom: 2px solid transparent;
+    white-space: nowrap;
+  }
+  .tab[aria-selected="true"] {
+    color: var(--text);
+    border-bottom-color: var(--brand);
+    font-weight: 500;
+  }
+  .tab.is-new {
+    color: var(--brand);
+    font-weight: 600;
+  }
+
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--r-md);
+    padding: 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  .card-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 14px;
+    flex-wrap: wrap;
+  }
+  .card-head p { margin: 3px 0 0; font-size: 13px; color: var(--text-2); max-width: 56ch; }
+
+  .btn {
+    font-family: var(--sans);
+    font-size: 13px;
+    font-weight: 500;
+    padding: 6px 13px;
+    border-radius: var(--r-sm);
+    border: 1px solid transparent;
+    white-space: nowrap;
+  }
+  /* Mirrors the repo's mandated variants: primary / secondary / danger / subtle */
+  .btn.primary   { background: var(--brand-wash); color: var(--brand); border-color: transparent; }
+  .btn.secondary { background: transparent; color: var(--text); border-color: var(--border-strong); }
+  .btn.danger    { background: transparent; color: var(--danger); border-color: transparent; }
+  .btn.subtle    { background: transparent; color: var(--text-2); border-color: transparent; }
+  .btn[aria-disabled="true"] { opacity: .4; }
+
+  table.tbl {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13.5px;
+  }
+  .tbl th {
+    text-align: left;
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: .07em;
+    text-transform: uppercase;
+    color: var(--text-3);
+    font-weight: 500;
+    padding: 0 10px 8px;
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+  }
+  .tbl td {
+    padding: 11px 10px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: middle;
+  }
+  .tbl tr:last-child td { border-bottom: none; }
+  .tbl .num { font-variant-numeric: tabular-nums; color: var(--text-2); }
+  .tbl .right { text-align: right; }
+  .scroll-x { overflow-x: auto; }
+
+  .rolename { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .rolename small { display: block; color: var(--text-3); font-size: 12px; font-weight: 400; }
+
+  .badge {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    padding: 2px 6px;
+    border-radius: var(--r-sm);
+    border: 1px solid var(--border-strong);
+    color: var(--text-3);
+  }
+  .badge.sys   { color: var(--info);  border-color: color-mix(in srgb, var(--info) 40%, transparent);  background: var(--info-wash); }
+  .badge.you   { color: var(--brand); border-color: color-mix(in srgb, var(--brand) 40%, transparent); background: var(--brand-wash); }
+
+  /* Segmented control — the permission matrix control */
+  .seg {
+    display: inline-grid;
+    grid-auto-flow: column;
+    background: var(--field);
+    border: 1px solid var(--border);
+    border-radius: var(--r-sm);
+    padding: 2px;
+    gap: 2px;
+  }
+  .seg span {
+    font-size: 12px;
+    padding: 4px 12px;
+    border-radius: 2px;
+    color: var(--text-2);
+    text-align: center;
+    white-space: nowrap;
+  }
+  .seg span[aria-checked="true"] {
+    background: var(--panel);
+    color: var(--text);
+    font-weight: 600;
+    box-shadow: 0 1px 2px rgb(0 0 0 / 18%);
+  }
+  .seg span[aria-checked="true"].on   { color: var(--brand); }
+  .seg span[aria-checked="true"].off  { color: var(--text-3); }
+  .seg span[aria-disabled="true"] { opacity: .35; }
+  .seg.locked { opacity: .6; }
+
+  .matrix { display: flex; flex-direction: column; gap: 2px; }
+  .mrow {
+    display: grid;
+    grid-template-columns: minmax(120px, 1fr) auto;
+    align-items: center;
+    gap: 14px;
+    padding: 6px 0;
+  }
+  .mrow > label { font-size: 13.5px; }
+  .mgroup {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: .07em;
+    text-transform: uppercase;
+    color: var(--text-3);
+    padding: 14px 0 4px;
+    border-top: 1px solid var(--border);
+    margin-top: 6px;
+  }
+  .mgroup:first-child { border-top: none; margin-top: 0; padding-top: 0; }
+
+  .field {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+  }
+  .field label {
+    font-size: 12px;
+    color: var(--text-2);
+  }
+  .input {
+    background: var(--field);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--r-sm);
+    padding: 7px 10px;
+    font-size: 13.5px;
+    color: var(--text);
+    font-family: var(--sans);
+  }
+  .input.placeholder { color: var(--text-3); }
+
+  .select {
+    display: inline-flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    min-width: 132px;
+    background: var(--field);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--r-sm);
+    padding: 5px 9px;
+    font-size: 13px;
+  }
+  .select::after { content: "▾"; color: var(--text-3); font-size: 10px; }
+  .select[aria-disabled="true"] { opacity: .45; }
+
+  /* Modal */
+  .modal {
+    background: var(--panel);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--r-lg);
+    box-shadow: 0 18px 48px rgb(0 0 0 / 34%);
+    overflow: hidden;
+  }
+  .modal-head, .modal-foot {
+    padding: 14px 18px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .modal-head { border-bottom: 1px solid var(--border); }
+  .modal-foot { border-top: 1px solid var(--border); background: var(--muted); }
+  .modal-body { padding: 18px; display: flex; flex-direction: column; gap: 16px; }
+  .backdrop {
+    background: var(--sunken);
+    padding: 26px;
+    border-radius: var(--r-md);
+  }
+
+  /* Callouts */
+  .callout {
+    display: grid;
+    grid-template-columns: 3px minmax(0, 1fr);
+    gap: 14px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--r-md);
+    overflow: hidden;
+  }
+  .callout .stripe { background: var(--warning); }
+  .callout.info .stripe { background: var(--info); }
+  .callout.danger .stripe { background: var(--danger); }
+  .callout .inner { padding: 14px 16px 15px 2px; }
+  .callout h3 { font-size: 14px; margin: 0 0 4px; }
+  .callout p { margin: 0; font-size: 13.5px; color: var(--text-2); }
+  .callout code {
+    font-family: var(--mono); font-size: 12.5px;
+    background: var(--muted); border: 1px solid var(--border);
+    border-radius: var(--r-sm); padding: 0 4px;
+  }
+
+  /* Empty state — the repo mandates a shared EmptyState component */
+  .empty {
+    border: 1px dashed var(--border-strong);
+    border-radius: var(--r-md);
+    padding: 30px 20px;
+    text-align: center;
+    color: var(--text-2);
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    align-items: center;
+  }
+  .empty strong { color: var(--text); font-size: 14px; font-weight: 600; }
+  .empty p { margin: 0; font-size: 13px; max-width: 44ch; }
+
+  /* Comparison + edge-case grids */
+  .grid-2 {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(268px, 1fr));
+    gap: 14px;
+  }
+
+  .cmp { font-size: 13px; }
+  .cmp th, .cmp td { padding: 7px 10px; }
+  .cmp td.lv { font-family: var(--mono); font-size: 11.5px; letter-spacing: .04em; }
+  .lv-manage { color: var(--brand); }
+  .lv-read   { color: var(--text); }
+  .lv-none   { color: var(--text-3); }
+
+  .flow {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--r-md);
+    padding: 18px;
+    overflow-x: auto;
+  }
+  .flow pre.mermaid { margin: 0; background: transparent; }
+
+  footer.doc {
+    border-top: 1px solid var(--border);
+    padding-top: 24px;
+    color: var(--text-3);
+    font-size: 13px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; }
+  }
+</style>
+
+<div class="wrap">
+
+  <header class="doc">
+    <p class="eyebrow">HyperDX · Design mockups · Slice A</p>
+    <h1>Role-based access control</h1>
+    <p class="lede">
+      Faithful renders of every screen slice A touches, drawn in the product's own
+      theme tokens so fit can be judged alongside layout. Numbered pins tie each
+      screen to the behaviour behind it.
+    </p>
+    <div class="meta">
+      <span>Team Settings</span>
+      <span>3 system roles + custom</span>
+      <span>Admin-only role CRUD</span>
+      <span>65 routes gated</span>
+      <span>Accent #25e2a5</span>
+    </div>
+  </header>
+
+  <!-- ========================================================= -->
+  <section class="block">
+    <div class="block-head">
+      <p class="eyebrow">Screen 01</p>
+      <h2>Access tab — the roles list</h2>
+      <p>
+        The Access tab exists today but only renders when the team has custom auth
+        methods configured. It becomes unconditional, because roles always exist.
+      </p>
+    </div>
+
+    <div class="split">
+      <div class="screen">
+        <div class="screen-bar">
+          <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+          <span class="screen-path">/team → Access</span>
+        </div>
+        <div class="screen-body">
+          <div class="tabs" role="tablist">
+            <div class="tab" role="tab" aria-selected="false">Data</div>
+            <div class="tab" role="tab" aria-selected="false">Members</div>
+            <div class="tab" role="tab" aria-selected="true">Access</div>
+            <div class="tab" role="tab" aria-selected="false">API &amp; Agents</div>
+            <div class="tab" role="tab" aria-selected="false">Integrations</div>
+            <div class="tab" role="tab" aria-selected="false">Query Settings</div>
+          </div>
+
+          <div style="height:18px"></div>
+
+          <div class="card">
+            <div class="card-head">
+              <div>
+                <h3>Roles</h3>
+                <p>Roles decide what members can see and change. Every member has exactly one.</p>
+              </div>
+              <button class="btn primary">+ Add role</button>
+            </div>
+
+            <div class="scroll-x">
+              <table class="tbl">
+                <thead>
+                  <tr>
+                    <th>Role</th>
+                    <th>Members</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td>
+                      <div class="rolename">
+                        <strong>Admin</strong>
+                        <span class="badge sys">System</span>
+                      </div>
+                      <small>Full access, including roles and API key rotation</small>
+                    </td>
+                    <td class="num">2</td>
+                    <td class="right"><button class="btn subtle">View</button></td>
+                  </tr>
+                  <tr>
+                    <td>
+                      <div class="rolename">
+                        <strong>Member</strong>
+                        <span class="badge sys">System</span>
+                      </div>
+                      <small>Build dashboards and alerts; read-only on sources</small>
+                    </td>
+                    <td class="num">9</td>
+                    <td class="right"><button class="btn subtle">View</button></td>
+                  </tr>
+                  <tr>
+                    <td>
+                      <div class="rolename">
+                        <strong>ReadOnly</strong>
+                        <span class="badge sys">System</span>
+                      </div>
+                      <small>View dashboards, searches and alerts</small>
+                    </td>
+                    <td class="num">4</td>
+                    <td class="right"><button class="btn subtle">View</button></td>
+                  </tr>
+                  <tr>
+                    <td>
+                      <div class="rolename"><strong>On-call engineer</strong></div>
+                      <small>Manage alerts and webhooks during rotation</small>
+                    </td>
+                    <td class="num">6</td>
+                    <td class="right">
+                      <button class="btn subtle">Edit</button>
+                      <button class="btn danger">Delete</button>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td>
+                      <div class="rolename"><strong>Finance viewer</strong></div>
+                      <small>Cost dashboards only</small>
+                    </td>
+                    <td class="num">0</td>
+                    <td class="right">
+                      <button class="btn subtle">Edit</button>
+                      <button class="btn danger">Delete</button>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="rail">
+        <div class="note">
+          <span class="pin">1</span>
+          <div><b>System roles are read-only.</b> They offer <code>View</code>, never
+          Edit or Delete — <code>isSystem</code> blocks both server-side too.</div>
+        </div>
+        <div class="note">
+          <span class="pin">2</span>
+          <div><b>Member count is the delete guard.</b> A role in use returns
+          <code>409</code>; the count tells you how many people to reassign first.</div>
+        </div>
+        <div class="note">
+          <span class="pin">3</span>
+          <div><b>This whole card is Admin-only.</b> Non-admins don't see a disabled
+          version of it — the section is absent.</div>
+        </div>
+        <div class="note">
+          <span class="pin">4</span>
+          <div><b>Security Policies stays below</b>, still conditional on configured
+          auth methods. Only the tab becomes unconditional.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========================================================= -->
+  <section class="block">
+    <div class="block-head">
+      <p class="eyebrow">Screen 02</p>
+      <h2>Role editor — the permission matrix</h2>
+      <p>
+        The centre of the feature. Segmented controls rather than dropdowns: the job
+        of this screen is comparing a role's whole posture at a glance, and eight
+        collapsed selects defeat that.
+      </p>
+    </div>
+
+    <div class="split">
+      <div class="screen">
+        <div class="screen-bar">
+          <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+          <span class="screen-path">/team → Access → Add role</span>
+        </div>
+        <div class="screen-body">
+          <div class="backdrop">
+            <div class="modal">
+              <div class="modal-head">
+                <h3>New role</h3>
+                <button class="btn subtle">✕</button>
+              </div>
+
+              <div class="modal-body">
+                <div class="field">
+                  <label for="rn">Role name</label>
+                  <input class="input" id="rn" value="On-call engineer" />
+                </div>
+                <div class="field">
+                  <label for="rd">Description <span style="color:var(--text-3)">(optional)</span></label>
+                  <input class="input placeholder" id="rd" value="Manage alerts and webhooks during rotation" />
+                </div>
+
+                <div class="matrix">
+                  <div class="mgroup">Resources</div>
+
+                  <div class="mrow">
+                    <label>Dashboards</label>
+                    <div class="seg" role="radiogroup">
+                      <span role="radio" aria-checked="false">No access</span>
+                      <span role="radio" aria-checked="true">Read</span>
+                      <span role="radio" aria-checked="false">Manage</span>
+                    </div>
+                  </div>
+                  <div class="mrow">
+                    <label>Saved searches</label>
+                    <div class="seg" role="radiogroup">
+                      <span role="radio" aria-checked="false">No access</span>
+                      <span role="radio" aria-checked="true">Read</span>
+                      <span role="radio" aria-checked="false">Manage</span>
+                    </div>
+                  </div>
+                  <div class="mrow">
+                    <label>Sources</label>
+                    <div class="seg" role="radiogroup">
+                      <span role="radio" aria-checked="false">No access</span>
+                      <span role="radio" aria-checked="true">Read</span>
+                      <span role="radio" aria-checked="false">Manage</span>
+                    </div>
+                  </div>
+                  <div class="mrow">
+                    <label>Alerts</label>
+                    <div class="seg" role="radiogroup">
+                      <span role="radio" aria-checked="false">No access</span>
+                      <span role="radio" aria-checked="false">Read</span>
+                      <span class="on" role="radio" aria-checked="true">Manage</span>
+                    </div>
+                  </div>
+                  <div class="mrow">
+                    <label>Webhooks</label>
+                    <div class="seg" role="radiogroup">
+                      <span role="radio" aria-checked="false">No access</span>
+                      <span role="radio" aria-checked="false">Read</span>
+                      <span class="on" role="radio" aria-checked="true">Manage</span>
+                    </div>
+                  </div>
+                  <div class="mrow">
+                    <label>Connections</label>
+                    <div class="seg" role="radiogroup">
+                      <span class="off" role="radio" aria-checked="true">No access</span>
+                      <span role="radio" aria-checked="false">Read</span>
+                      <span role="radio" aria-checked="false">Manage</span>
+                    </div>
+                  </div>
+
+                  <div class="mgroup">Administration</div>
+
+                  <div class="mrow">
+                    <label>Users</label>
+                    <div class="seg" role="radiogroup">
+                      <span role="radio" aria-checked="false">No access</span>
+                      <span role="radio" aria-checked="true">Read</span>
+                      <span role="radio" aria-disabled="true">Manage</span>
+                    </div>
+                  </div>
+                  <div class="mrow">
+                    <label>Team</label>
+                    <div class="seg" role="radiogroup">
+                      <span role="radio" aria-disabled="true">No access</span>
+                      <span role="radio" aria-checked="true">Read</span>
+                      <span role="radio" aria-checked="false">Manage</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="modal-foot">
+                <span style="font-size:12.5px;color:var(--text-3)">
+                  Inviting and removing members stays with Admins.
+                </span>
+                <span style="display:flex;gap:8px">
+                  <button class="btn secondary">Cancel</button>
+                  <button class="btn primary">Create role</button>
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="rail">
+        <div class="note">
+          <span class="pin">1</span>
+          <div><b>Levels are ordered, not arbitrary.</b> Manage ⊃ Read ⊃ No access,
+          left to right, so the selected column reads as a posture down the page.</div>
+        </div>
+        <div class="note">
+          <span class="pin">2</span>
+          <div><b>Two groups, two vocabularies.</b> Resources take all three levels;
+          administration is narrower — <code>Users</code> has no Manage,
+          <code>Team</code> has no No&nbsp;access.</div>
+        </div>
+        <div class="note">
+          <span class="pin">3</span>
+          <div><b>Greyed cells are absent, not forbidden.</b> Those levels don't exist
+          in the vocabulary, so no role can ever hold them.</div>
+        </div>
+        <div class="note">
+          <span class="pin">4</span>
+          <div><b>No Admin toggle anywhere.</b> <code>isAdmin</code> is a hard
+          capability, stripped from API input. That's what makes privilege escalation
+          impossible by construction rather than by validation.</div>
+        </div>
+        <div class="note">
+          <span class="pin">5</span>
+          <div><b>Footer states what can't be granted.</b> Cheaper than a member later
+          asking why their custom role can't invite people.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========================================================= -->
+  <section class="block">
+    <div class="block-head">
+      <p class="eyebrow">Screen 03</p>
+      <h2>Members — assigning a role</h2>
+      <p>An existing table gains one column and one control.</p>
+    </div>
+
+    <div class="split">
+      <div class="screen">
+        <div class="screen-bar">
+          <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+          <span class="screen-path">/team → Members</span>
+        </div>
+        <div class="screen-body">
+          <div class="card">
+            <div class="card-head">
+              <div>
+                <h3>Members</h3>
+                <p>15 people have access to this team.</p>
+              </div>
+              <button class="btn primary">Invite member</button>
+            </div>
+
+            <div class="scroll-x">
+              <table class="tbl">
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Email</th>
+                    <th>Role</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td>Doha Elsawy <span class="badge you">You</span></td>
+                    <td style="color:var(--text-2)">doha@luciq.ai</td>
+                    <td><span class="select" aria-disabled="true">Admin</span></td>
+                    <td class="right"><button class="btn subtle" aria-disabled="true">Remove</button></td>
+                  </tr>
+                  <tr>
+                    <td>Warren Lee</td>
+                    <td style="color:var(--text-2)">warren@example.com</td>
+                    <td><span class="select">Member</span></td>
+                    <td class="right"><button class="btn danger">Remove</button></td>
+                  </tr>
+                  <tr>
+                    <td>Karl Power</td>
+                    <td style="color:var(--text-2)">karl@example.com</td>
+                    <td><span class="select">On-call engineer</span></td>
+                    <td class="right"><button class="btn danger">Remove</button></td>
+                  </tr>
+                  <tr>
+                    <td>Elizabet Oliveira</td>
+                    <td style="color:var(--text-2)">elizabet@example.com</td>
+                    <td><span class="select">ReadOnly</span></td>
+                    <td class="right"><button class="btn danger">Remove</button></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="rail">
+        <div class="note">
+          <span class="pin">1</span>
+          <div><b>Last admin is locked.</b> Both the role select and Remove are
+          disabled, with a tooltip: <em>“The last admin can't be changed. Promote
+          someone else first.”</em></div>
+        </div>
+        <div class="note">
+          <span class="pin">2</span>
+          <div><b>Server enforces it too.</b> The disabled control is a courtesy; the
+          invariant lives in the API and returns <code>409</code>.</div>
+        </div>
+        <div class="note">
+          <span class="pin">3</span>
+          <div><b>Non-admins see this table read-only</b> at <code>users: read</code>,
+          and don't see the tab at all at <code>users: none</code>.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========================================================= -->
+  <section class="block">
+    <div class="block-head">
+      <p class="eyebrow">Screen 04</p>
+      <h2>The payoff — what ReadOnly actually sees</h2>
+      <p>
+        Same Data tab, different role. Mutating affordances are absent rather than
+        disabled, so the UI never advertises something the server will reject.
+      </p>
+    </div>
+
+    <div class="split">
+      <div class="screen">
+        <div class="screen-bar">
+          <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+          <span class="screen-path">/team → Data · signed in as ReadOnly</span>
+        </div>
+        <div class="screen-body">
+          <div class="tabs" role="tablist">
+            <div class="tab" role="tab" aria-selected="true">Data</div>
+            <div class="tab" role="tab" aria-selected="false">Members</div>
+            <div class="tab" role="tab" aria-selected="false">Query Settings</div>
+          </div>
+
+          <div style="height:18px"></div>
+
+          <div class="card">
+            <div class="card-head">
+              <div>
+                <h3>Sources</h3>
+                <p>Sources map your ClickHouse tables to logs, traces and metrics.</p>
+              </div>
+              <!-- No "Add source" button: sources = read -->
+            </div>
+            <div class="scroll-x">
+              <table class="tbl">
+                <thead>
+                  <tr><th>Name</th><th>Kind</th><th>Table</th></tr>
+                </thead>
+                <tbody>
+                  <tr><td>Logs</td><td style="color:var(--text-2)">Log</td><td class="num">otel_logs</td></tr>
+                  <tr><td>Traces</td><td style="color:var(--text-2)">Trace</td><td class="num">otel_traces</td></tr>
+                  <tr><td>Metrics</td><td style="color:var(--text-2)">Metric</td><td class="num">otel_metrics_*</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div style="height:14px"></div>
+
+          <div class="empty">
+            <strong>Connections are hidden</strong>
+            <p>
+              At <code style="font-family:var(--mono);font-size:12px">connections: none</code>
+              the section isn't rendered. Shown here only to illustrate the gap.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div class="rail">
+        <div class="note">
+          <span class="pin">1</span>
+          <div><b>Tabs collapse to what's reachable.</b> Access, API &amp; Agents and
+          Integrations disappear entirely.</div>
+        </div>
+        <div class="note">
+          <span class="pin">2</span>
+          <div><b>Absent beats disabled</b> for whole sections; disabled is reserved
+          for controls where the reason is worth explaining, like the last admin.</div>
+        </div>
+        <div class="note">
+          <span class="pin">3</span>
+          <div><b>Query Settings survives</b> — it's <code>team: read</code>, which
+          ReadOnly holds.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========================================================= -->
+  <section class="block">
+    <div class="block-head">
+      <p class="eyebrow">Reference</p>
+      <h2>The three system roles, side by side</h2>
+      <p>Seeded per team on creation. Admin's row is display-only — <code style="font-family:var(--mono);font-size:12.5px">isAdmin</code> already grants everything.</p>
+    </div>
+
+    <div class="card">
+      <div class="scroll-x">
+        <table class="tbl cmp">
+          <thead>
+            <tr>
+              <th>Permission</th>
+              <th>Admin</th>
+              <th>Member</th>
+              <th>ReadOnly</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td>Dashboards</td>    <td class="lv lv-manage">manage</td><td class="lv lv-manage">manage</td><td class="lv lv-read">read</td></tr>
+            <tr><td>Saved searches</td><td class="lv lv-manage">manage</td><td class="lv lv-manage">manage</td><td class="lv lv-read">read</td></tr>
+            <tr><td>Sources</td>       <td class="lv lv-manage">manage</td><td class="lv lv-read">read</td>    <td class="lv lv-read">read</td></tr>
+            <tr><td>Alerts</td>        <td class="lv lv-manage">manage</td><td class="lv lv-manage">manage</td><td class="lv lv-read">read</td></tr>
+            <tr><td>Webhooks</td>      <td class="lv lv-manage">manage</td><td class="lv lv-read">read</td>    <td class="lv lv-none">none</td></tr>
+            <tr><td>Connections</td>   <td class="lv lv-manage">manage</td><td class="lv lv-none">none</td>    <td class="lv lv-none">none</td></tr>
+            <tr><td>Users</td>         <td class="lv lv-read">read</td>    <td class="lv lv-read">read</td>    <td class="lv lv-none">none</td></tr>
+            <tr><td>Team</td>          <td class="lv lv-manage">manage</td><td class="lv lv-read">read</td>    <td class="lv lv-read">read</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="callout info">
+      <div class="stripe"></div>
+      <div class="inner">
+        <h3>Connections default to no access below Admin</h3>
+        <p>
+          A departure from the ClickStack model, which doesn't list Connections at all.
+          A connection document holds ClickHouse credentials, so read exposes name and
+          host only — the password stays <code>select: false</code> at the schema level.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========================================================= -->
+  <section class="block">
+    <div class="block-head">
+      <p class="eyebrow">Reference</p>
+      <h2>How a request resolves</h2>
+      <p>Four checks, cheapest first. Everything below the middleware assumes it passed.</p>
+    </div>
+
+    <div class="flow">
+<pre class="mermaid">
+flowchart TD
+  A[Request hits gated route] --> B{IS_LOCAL_APP_MODE?}
+  B -- yes --> OK[Allow]
+  B -- no --> C{role missing?}
+  C -- yes --> W[Allow as Admin<br/>+ warn log + metric]
+  C -- no --> D{role.isAdmin?}
+  D -- yes --> OK
+  D -- no --> E{rank of held level<br/>&ge; rank required?}
+  E -- yes --> OK
+  E -- no --> F[403 Forbidden<br/>required: resource + level]
+</pre>
+    </div>
+
+    <div class="callout">
+      <div class="stripe"></div>
+      <div class="inner">
+        <h3>The missing-role branch is a deliberate fail-open</h3>
+        <p>
+          If the migration hasn't run, users resolve to Admin rather than being locked
+          out. Self-hosted operators often upgrade mid-incident, and losing access to
+          your own observability tool is the worse failure. The warning log and counter
+          are what stop it being silent.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========================================================= -->
+  <section class="block">
+    <div class="block-head">
+      <p class="eyebrow">Reference</p>
+      <h2>States worth designing before they surprise us</h2>
+    </div>
+
+    <div class="grid-2">
+      <div class="card">
+        <h3>No custom roles yet</h3>
+        <div class="empty">
+          <strong>Just the three built-in roles</strong>
+          <p>Create a custom role when the built-ins don't fit — say, alerting access without dashboard editing.</p>
+          <button class="btn primary">+ Add role</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>Deleting a role in use</h3>
+        <div class="callout danger">
+          <div class="stripe"></div>
+          <div class="inner">
+            <h3>“On-call engineer” has 6 members</h3>
+            <p>Move them to another role before deleting it.</p>
+          </div>
+        </div>
+        <span style="display:flex;gap:8px;justify-content:flex-end">
+          <button class="btn secondary">Cancel</button>
+          <button class="btn danger" aria-disabled="true">Delete role</button>
+        </span>
+      </div>
+
+      <div class="card">
+        <h3>Viewing a system role</h3>
+        <div class="mrow">
+          <label>Dashboards</label>
+          <div class="seg locked" role="radiogroup">
+            <span role="radio" aria-disabled="true">No access</span>
+            <span role="radio" aria-disabled="true">Read</span>
+            <span class="on" role="radio" aria-checked="true" aria-disabled="true">Manage</span>
+          </div>
+        </div>
+        <p style="margin:0;font-size:13px;color:var(--text-2)">
+          Same matrix, inert. Duplicate to a custom role to change anything.
+        </p>
+        <span style="display:flex;gap:8px;justify-content:flex-end">
+          <button class="btn secondary">Duplicate as custom role</button>
+        </span>
+      </div>
+
+      <div class="card">
+        <h3>Rotating the ingestion key</h3>
+        <div class="callout">
+          <div class="stripe"></div>
+          <div class="inner">
+            <h3>Collectors will stop sending data</h3>
+            <p>
+              Every OTel collector using the current key must be reconfigured before
+              telemetry resumes. Admin only.
+            </p>
+          </div>
+        </div>
+        <span style="display:flex;gap:8px;justify-content:flex-end">
+          <button class="btn secondary">Cancel</button>
+          <button class="btn danger">Rotate key</button>
+        </span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========================================================= -->
+  <section class="block">
+    <div class="block-head">
+      <p class="eyebrow">Boundary</p>
+      <h2>What these screens do not do</h2>
+    </div>
+
+    <div class="callout danger">
+      <div class="stripe"></div>
+      <div class="inner">
+        <h3>Source permissions are UI-level until slice B</h3>
+        <p>
+          Hiding a source removes it from these screens. It does not stop a user
+          reaching <code>/api/clickhouse-proxy</code> and naming the table directly.
+          Until the query path is gated, this model governs the interface, not the data
+          — and the product copy should say so rather than imply isolation it can't yet
+          deliver.
+        </p>
+      </div>
+    </div>
+
+    <div class="grid-2" style="margin-top:4px">
+      <div class="card">
+        <h3 style="color:var(--text-2)">Deferred to slice C</h3>
+        <p style="margin:0;font-size:13.5px;color:var(--text-2)">
+          MCP tools and External API v2 — 67 enforcement points on the Bearer-token
+          path, untouched here.
+        </p>
+      </div>
+      <div class="card">
+        <h3 style="color:var(--text-2)">Deferred to slice D</h3>
+        <p style="margin:0;font-size:13.5px;color:var(--text-2)">
+          Per-resource rules matching by name, tag or ID. Every role here is
+          team-wide.
+        </p>
+      </div>
+      <div class="card">
+        <h3 style="color:var(--text-2)">Not gated inline</h3>
+        <p style="margin:0;font-size:13.5px;color:var(--text-2)">
+          Controls deep inside the dashboard and search pages still submit and get a
+          server 403. List-level actions are gated; the two 3,000-line pages are not.
+        </p>
+      </div>
+      <div class="card">
+        <h3 style="color:var(--text-2)">Ingestion key visibility</h3>
+        <p style="margin:0;font-size:13.5px;color:var(--text-2)">
+          Rotation is Admin-only, but the key stays visible to anyone with
+          <code style="font-family:var(--mono);font-size:12px">team: read</code>.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <footer class="doc">
+    Mockups for slice A of the RBAC design · drawn in HyperDX theme tokens
+    (green-4 <span style="font-family:var(--mono)">#25e2a5</span>, dark-9
+    <span style="font-family:var(--mono)">#101113</span>) · both themes follow the
+    viewer's preference.
+  </footer>
+
+</div>

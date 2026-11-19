@@ -25,6 +25,7 @@ export function registerSaveSavedSearch({
   registerTool(
     'clickstack_save_saved_search',
     {
+      permission: 'savedSearches:manage',
       title: 'Create or Update Saved Search',
       annotations: UPSERT_TOOL,
       description:

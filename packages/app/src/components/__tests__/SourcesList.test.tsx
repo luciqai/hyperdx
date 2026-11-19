@@ -2,15 +2,23 @@ import { SourceKind, TSource } from '@hyperdx/common-utils/dist/types';
 import { screen } from '@testing-library/react';
 
 import { SourcesList } from '@/components/Sources/SourcesList';
-import { useConnections } from '@/connection';
 import { useSources } from '@/source';
 
 jest.mock('next/router', () => ({
   useRouter: () => ({ push: jest.fn(), query: {}, pathname: '/' }),
 }));
 jest.mock('@/source', () => ({ useSources: jest.fn() }));
-jest.mock('@/connection', () => ({ useConnections: jest.fn() }));
 jest.mock('@/config', () => ({ IS_LOCAL_MODE: false }));
+// The list's manage-only controls consult this; the hook itself reaches for
+// `api.useMe()`, which needs a QueryClient this display-focused test has no
+// reason to stand up. Gating is covered in SourcesListPermissions.test.tsx.
+jest.mock('@/hooks/useMyPermissions', () => ({
+  useMyPermissions: () => ({
+    isAdmin: true,
+    isLoading: false,
+    can: () => true,
+  }),
+}));
 // TableSourceForm only renders while editing/creating; stub it so the list test
 // does not pull in the full source form.
 jest.mock('../Sources/SourceForm', () => ({ TableSourceForm: () => null }));
@@ -31,14 +39,6 @@ const makeSource = (
   }) as unknown as TSource;
 
 describe('SourcesList section display', () => {
-  beforeEach(() => {
-    asMock(useConnections).mockReturnValue({
-      data: [{ id: 'conn-a', name: 'Default' }],
-      isLoading: false,
-      refetch: jest.fn(),
-    });
-  });
-
   it('shows the section on a sectioned source and nothing on an unsectioned one', () => {
     asMock(useSources).mockReturnValue({
       data: [
@@ -87,21 +87,15 @@ describe('SourcesList section display', () => {
       'Traces',
       'OTel metrics',
       'Sessions',
-      'Time Series',
+      'Time Series / Prometheus',
     ]) {
       expect(screen.getByText(label)).toBeInTheDocument();
     }
   });
 
-  it('names a PromQL source after the connection it reads from', () => {
-    asMock(useConnections).mockReturnValue({
-      data: [
-        { id: 'conn-a', name: 'Default' },
-        { id: 'conn-prom', name: 'Thanos', isPrometheusEndpoint: true },
-      ],
-      isLoading: false,
-      refetch: jest.fn(),
-    });
+  it('keeps the combined label on a PromQL source, whatever its connection', () => {
+    // This list does not read connections, so it cannot tell a ClickHouse
+    // TimeSeries table from a Prometheus endpoint.
     asMock(useSources).mockReturnValue({
       data: [
         makeSource('a', 'A', { kind: SourceKind.Promql }),
@@ -109,18 +103,34 @@ describe('SourcesList section display', () => {
           kind: SourceKind.Promql,
           connection: 'conn-prom',
         }),
-        makeSource('c', 'C', {
-          kind: SourceKind.Promql,
-          connection: 'conn-missing',
-        }),
       ],
       isLoading: false,
       refetch: jest.fn(),
     });
     renderWithMantine(<SourcesList withCard={false} />);
 
-    expect(screen.getByText('Time Series')).toBeInTheDocument();
-    expect(screen.getByText('Prometheus')).toBeInTheDocument();
-    expect(screen.getByText('Time Series / Prometheus')).toBeInTheDocument();
+    expect(screen.getAllByText('Time Series / Prometheus')).toHaveLength(2);
+    expect(screen.queryByText('Prometheus')).not.toBeInTheDocument();
+  });
+
+  it('renders the connection name inlined by GET /sources', () => {
+    asMock(useSources).mockReturnValue({
+      data: [
+        {
+          id: 's1',
+          name: 'Logs',
+          kind: 'log',
+          connection: 'c1',
+          connectionName: 'Local CH',
+        },
+      ],
+      isLoading: false,
+      error: null,
+      refetch: jest.fn(),
+    });
+
+    renderWithMantine(<SourcesList withCard={false} />);
+
+    expect(screen.getByText('Local CH')).toBeInTheDocument();
   });
 });

@@ -146,6 +146,9 @@ export function registerEmergingSignals({
     {
       title: 'Emerging & Disappeared Signals',
       annotations: READ_ONLY_TOOL,
+      // Reads event patterns out of a source, exactly as the other query
+      // tools do.
+      permission: 'sources:read',
       description:
         'Detect what is NEW or GONE between an earlier baseline window and a ' +
         'current window — log/event patterns that emerged, ramped up, or ' +

@@ -78,6 +78,7 @@ jest.mock('@/utils/logger', () => ({
   },
 }));
 
+import { MCP_TEST_ADMIN_ROLE } from '@/mcp/__tests__/mcpTestUtils';
 import type { McpContext } from '@/mcp/tools/types';
 import { mcpServerError, mcpUserError } from '@/mcp/utils/errors';
 import type { McpClientInfo } from '@/mcp/utils/mcpClient';
@@ -89,6 +90,7 @@ function ctx(clientInfo: McpClientInfo = {}): McpContext {
   return {
     teamId: 'team-123',
     userId: 'user-456',
+    role: MCP_TEST_ADMIN_ROLE,
     mcpClient: clientInfo,
   };
 }
@@ -203,7 +205,11 @@ describe('withToolTracing', () => {
       content: [{ type: 'text', text: 'ok' }],
     });
 
-    const contextNoClient = { teamId: 'team-123', userId: 'user-456' };
+    const contextNoClient = {
+      teamId: 'team-123',
+      userId: 'user-456',
+      role: MCP_TEST_ADMIN_ROLE,
+    };
 
     const traced = withToolTracing('my_tool', contextNoClient, handler);
     await traced({});

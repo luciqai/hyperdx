@@ -29,6 +29,7 @@ export function registerQueryTile({
   registerTool(
     'clickstack_query_tile',
     {
+      permission: 'dashboards:read',
       title: 'Query a Dashboard Tile',
       annotations: READ_ONLY_TOOL,
       description:

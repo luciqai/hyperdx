@@ -36,6 +36,7 @@ import {
 } from '@/controllers/presetDashboardFilters';
 import { getSources } from '@/controllers/sources';
 import { getNonNullUserWithTeam } from '@/middleware/auth';
+import { requirePermission } from '@/middleware/rbac';
 import type { ObjectId } from '@/models';
 import {
   getChangedFilterSourceRefs,
@@ -160,20 +161,25 @@ const migrateLegacyDashboardTileColors: express.RequestHandler = (
   next();
 };
 
-router.get('/', async (req, res, next) => {
-  try {
-    const { teamId } = getNonNullUserWithTeam(req);
+router.get(
+  '/',
+  requirePermission('dashboards', 'read'),
+  async (req, res, next) => {
+    try {
+      const { teamId } = getNonNullUserWithTeam(req);
 
-    const dashboards = await getDashboards(teamId);
+      const dashboards = await getDashboards(teamId);
 
-    return res.json(dashboards);
-  } catch (e) {
-    next(e);
-  }
-});
+      return res.json(dashboards);
+    } catch (e) {
+      next(e);
+    }
+  },
+);
 
 router.post(
   '/',
+  requirePermission('dashboards', 'manage'),
   migrateLegacyDashboardTileColors,
   validateRequest({
     body: DashboardWithoutIdSchema.superRefine(addFilterIssues),
@@ -208,6 +214,7 @@ router.post(
 
 router.patch(
   '/:id',
+  requirePermission('dashboards', 'manage'),
   migrateLegacyDashboardTileColors,
   validateRequest({
     params: z.object({
@@ -270,6 +277,7 @@ router.patch(
 
 router.delete(
   '/:id',
+  requirePermission('dashboards', 'manage'),
   validateRequest({
     params: z.object({ id: objectIdSchema }),
   }),
@@ -289,6 +297,7 @@ router.delete(
 
 router.get(
   '/preset/:presetDashboard/filters',
+  requirePermission('dashboards', 'read'),
   validateRequest({
     params: z.object({
       presetDashboard: z.nativeEnum(PresetDashboard),
@@ -318,6 +327,7 @@ router.get(
 
 router.put(
   '/preset/:presetDashboard/filter',
+  requirePermission('dashboards', 'manage'),
   validateRequest({
     body: z.object({
       filter: PresetDashboardFilterSchema,
@@ -355,6 +365,7 @@ router.put(
 
 router.post(
   '/preset/:presetDashboard/filter',
+  requirePermission('dashboards', 'manage'),
   validateRequest({
     body: z.object({
       filter: PresetDashboardFilterSchema,
@@ -388,6 +399,7 @@ router.post(
 
 router.delete(
   '/preset/:presetDashboard/filter/:id',
+  requirePermission('dashboards', 'manage'),
   validateRequest({
     params: z.object({
       presetDashboard: z.nativeEnum(PresetDashboard),

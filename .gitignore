@@ -8,7 +8,7 @@
 
 # Playwright MCP scratch files
 seed.spec.ts
-specs/
+/specs/
 
 # misc
 **/.DS_Store

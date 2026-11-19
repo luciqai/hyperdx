@@ -13,6 +13,7 @@ jest.mock('@/clickhouse', () => ({
 import { ClickHouseError } from '@clickhouse/client-common';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
+import { MCP_TEST_ADMIN_ROLE } from '@/mcp/__tests__/mcpTestUtils';
 import { registerDescribeTable } from '@/mcp/tools/sources/describeTable';
 import {
   shapeTableDescription,
@@ -57,7 +58,11 @@ function getHandler() {
   };
   registerDescribeTable({
     server: new McpServer({ name: 'test', version: '1.0.0' }),
-    context: { teamId: 'team-1', userId: 'user-1' },
+    context: {
+      teamId: 'team-1',
+      userId: 'user-1',
+      role: MCP_TEST_ADMIN_ROLE,
+    },
     registerTool,
   });
   return handler!;

@@ -9,6 +9,7 @@ import {
 } from '@/controllers/pinnedFilter';
 import { getSource } from '@/controllers/sources';
 import { getNonNullUserWithTeam } from '@/middleware/auth';
+import { requirePermission } from '@/middleware/rbac';
 import { objectIdSchema } from '@/utils/zod';
 
 const router = express.Router();
@@ -19,6 +20,9 @@ const router = express.Router();
  */
 router.get(
   '/',
+  // PinnedFilter is unique on {team, source}: one shared document per source,
+  // so it is team config gated on `sources`, not per-user personal state.
+  requirePermission('sources', 'read'),
   validateRequest({
     query: z.object({
       source: objectIdSchema,
@@ -64,6 +68,8 @@ const updateBodySchema = z.object({
  */
 router.put(
   '/',
+  // Writing this changes what every member of the team sees.
+  requirePermission('sources', 'manage'),
   validateRequest({ body: updateBodySchema }),
   async (req, res, next) => {
     try {

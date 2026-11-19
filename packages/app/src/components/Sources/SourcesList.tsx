@@ -27,7 +27,7 @@ import {
 } from '@tabler/icons-react';
 
 import { IS_LOCAL_MODE } from '@/config';
-import { useConnections } from '@/connection';
+import { useMyPermissions } from '@/hooks/useMyPermissions';
 import { useSources } from '@/source';
 
 import { getSourceKindLabel } from './SourceForm/constants';
@@ -59,27 +59,29 @@ export function SourcesList({
   showEmptyState = true,
 }: SourcesListProps) {
   const {
-    data: connections,
-    isLoading: isLoadingConnections,
-    error: connectionsError,
-    refetch: refetchConnections,
-  } = useConnections();
-  const {
     data: sources,
-    isLoading: isLoadingSources,
-    error: sourcesError,
+    isLoading,
+    error,
     refetch: refetchSources,
   } = useSources();
 
   const [editedSourceId, setEditedSourceId] = useState<string | null>(null);
   const [isCreatingSource, setIsCreatingSource] = useState(false);
 
+  /**
+   * The list itself needs only `sources: read`, but both controls that reveal
+   * `TableSourceForm` need more than that: the form calls `useConnections()`,
+   * which Member and ReadOnly hold as `connections: none`, and saving from it
+   * 403s. Absent, not disabled — §10.3: the UI must never advertise an action
+   * the server will reject.
+   */
+  const { can } = useMyPermissions();
+  const canManageSources = can('sources', 'manage');
+
   // Expand and scroll to the relevant source when the URL includes a
   // `#source-<id>` anchor.
   const router = useRouter();
   const expandedFromHashRef = useRef<string | null>(null);
-  const isLoading = isLoadingConnections || isLoadingSources;
-  const error = connectionsError || sourcesError;
 
   useEffect(() => {
     if (!router.isReady || isLoading || error) return;
@@ -113,7 +115,6 @@ export function SourcesList({
   }, [router, sources, isLoading, error]);
 
   const handleRetry = () => {
-    refetchConnections();
     refetchSources();
   };
 
@@ -210,10 +211,10 @@ export function SourcesList({
                 </Group>
                 <Text size={subtextSize} c="dimmed" mt={4}>
                   <Group gap="xs">
-                    {getSourceKindLabel(
-                      s.kind,
-                      connections?.find(c => c.id === s.connection),
-                    )}
+                    {/* No connection is passed: this list does not read
+                        connections (see the permissions note above), so a
+                        PromQL source keeps the combined label here. */}
+                    {getSourceKindLabel(s.kind)}
                     {s.section && (
                       <Group gap={4}>
                         <IconFolder size={iconSize} />
@@ -222,7 +223,7 @@ export function SourcesList({
                     )}
                     <Group gap={4}>
                       <IconServer size={iconSize} />
-                      {connections?.find(c => c.id === s.connection)?.name}
+                      {s.connectionName}
                     </Group>
                     <Group gap={4}>
                       {s.from && (
@@ -237,21 +238,26 @@ export function SourcesList({
                   </Group>
                 </Text>
               </div>
-              <ActionIcon
-                variant="secondary"
-                size={buttonSize}
-                onClick={() =>
-                  setEditedSourceId(editedSourceId === s.id ? null : s.id)
-                }
-              >
-                {editedSourceId === s.id ? (
-                  <IconChevronUp size={iconSize + 2} />
-                ) : (
-                  <IconChevronDown size={iconSize + 2} />
-                )}
-              </ActionIcon>
+              {canManageSources && (
+                <ActionIcon
+                  variant="secondary"
+                  size={buttonSize}
+                  data-testid={`expand-source-${s.id}`}
+                  onClick={() =>
+                    setEditedSourceId(editedSourceId === s.id ? null : s.id)
+                  }
+                >
+                  {editedSourceId === s.id ? (
+                    <IconChevronUp size={iconSize + 2} />
+                  ) : (
+                    <IconChevronDown size={iconSize + 2} />
+                  )}
+                </ActionIcon>
+              )}
             </Flex>
-            {editedSourceId === s.id && (
+            {/* Also gated: the `#source-<id>` deep link above expands without
+                going through the chevron. */}
+            {canManageSources && editedSourceId === s.id && (
               <Box mt="xs">
                 <TableSourceForm
                   sourceId={s.id}
@@ -274,7 +280,7 @@ export function SourcesList({
           </>
         )}
 
-        {!IS_LOCAL_MODE && !isCreatingSource && (
+        {!IS_LOCAL_MODE && !isCreatingSource && canManageSources && (
           <Flex
             justify="flex-end"
             pt={sources && sources.length > 0 ? 'md' : 0}
@@ -282,6 +288,7 @@ export function SourcesList({
             <Button
               variant="secondary"
               size={buttonSize}
+              data-testid="add-source-button"
               leftSection={<IconPlus size={14} />}
               onClick={() => {
                 setIsCreatingSource(true);

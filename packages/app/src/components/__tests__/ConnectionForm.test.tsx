@@ -36,9 +36,10 @@ const mockTestConnectionMutateAsync = jest.fn();
 jest.mock('@/api', () => ({
   ...(jest.requireActual('@/api') ?? {}),
   useTestConnection: () => ({
-    mutateAsync: mockTestConnectionMutateAsync.mockResolvedValue({
-      success: true,
-    }),
+    // Default behaviour is set in beforeEach, not here: calling
+    // mockResolvedValue() inside the factory re-applied it on every render and
+    // silently reverted any per-test override.
+    mutateAsync: mockTestConnectionMutateAsync,
   }),
 }));
 
@@ -56,7 +57,8 @@ describe('ConnectionForm', () => {
   beforeEach(() => {
     mockCreateMutate.mockClear();
     mockUpdateMutate.mockClear();
-    mockTestConnectionMutateAsync.mockClear();
+    mockTestConnectionMutateAsync.mockReset();
+    mockTestConnectionMutateAsync.mockResolvedValue({ success: true });
     (
       jest.requireMock('@mantine/notifications') as any
     ).notifications.show.mockClear();
@@ -266,4 +268,84 @@ describe('ConnectionForm', () => {
       );
     });
   });
+
+  // --- RBAC: a 403 must not masquerade as bad credentials ---
+
+  /** Shape the API actually returns for an RBAC denial. */
+  const permissionDenied = () => ({
+    response: {
+      json: async () => ({
+        message: 'You do not have permission to perform this action.',
+        required: { resource: 'connections', level: 'manage' },
+      }),
+    },
+  });
+
+  const shownMessages = () =>
+    (
+      jest.requireMock('@mantine/notifications') as any
+    ).notifications.show.mock.calls.map((c: any[]) => c[0]?.message);
+
+  it('surfaces the permission message when creating is denied', async () => {
+    // The server returns 403 { message, required }. Before the fix onError took
+    // no argument at all, so this rendered "check the host and credentials",
+    // blaming the user's input for a permissions problem.
+    mockCreateMutate.mockImplementation((_vars: unknown, opts: any) => {
+      opts?.onError?.(permissionDenied());
+    });
+
+    renderWithMantine(
+      <ConnectionForm connection={baseConnection} isNew={true} />,
+    );
+    await waitFor(() => {
+      expect(
+        screen.getByRole('button', { name: /Create/i }),
+      ).toBeInTheDocument();
+    });
+    fireEvent.change(screen.getByPlaceholderText('My Clickhouse Server'), {
+      target: { value: 'Test Name' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /Create/i }));
+
+    await waitFor(() => {
+      expect(shownMessages()).toContain(
+        'You do not have permission to perform this action.',
+      );
+    });
+    expect(shownMessages().join(' ')).not.toContain(
+      'check the host and credentials',
+    );
+  });
+
+  it('surfaces the permission message when updating is denied', async () => {
+    mockUpdateMutate.mockImplementation((_vars: unknown, opts: any) => {
+      opts?.onError?.(permissionDenied());
+    });
+
+    renderWithMantine(
+      <ConnectionForm
+        connection={{ ...baseConnection, id: 'existing-id' }}
+        isNew={false}
+      />,
+    );
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Save/i })).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByRole('button', { name: /Save/i }));
+
+    await waitFor(() => {
+      expect(shownMessages()).toContain(
+        'You do not have permission to perform this action.',
+      );
+    });
+    expect(shownMessages().join(' ')).not.toContain(
+      'check the host and credentials',
+    );
+  });
+
+  // The test-connection path is asserted in
+  // src/utils/__tests__/errorNotification.test.ts rather than here: this
+  // component reaches its hook via the default export (api.useTestConnection)
+  // while this file mocks a named export, so the mock is not what runs. The
+  // logic under test is the message extraction, which lives in the helper.
 });

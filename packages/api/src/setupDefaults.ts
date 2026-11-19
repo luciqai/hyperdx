@@ -6,6 +6,7 @@ import {
   IS_PROMQL_ENABLED,
 } from '@/config';
 import { createConnection, getConnections } from '@/controllers/connection';
+import { seedSystemRoles } from '@/controllers/role';
 import { createSource, getSources, updateSource } from '@/controllers/sources';
 import { getTeam } from '@/controllers/team';
 import logger from '@/utils/logger';
@@ -28,6 +29,11 @@ function tryParseJSON(str: string | undefined) {
  */
 export async function setupTeamDefaults(teamId: string) {
   logger.info(`Setting up defaults for team: ${teamId}`);
+
+  // Idempotent, and deliberately ahead of the DEFAULT_CONNECTIONS/
+  // DEFAULT_SOURCES early return below: local/all-in-one mode calls this on
+  // every boot without those env vars set, and still needs its system roles.
+  await seedSystemRoles(teamId);
 
   const parsedDefaultConnections = tryParseJSON(DEFAULT_CONNECTIONS);
   const parsedDefaultSources = tryParseJSON(DEFAULT_SOURCES);

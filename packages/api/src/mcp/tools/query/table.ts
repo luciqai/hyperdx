@@ -261,6 +261,7 @@ export function registerTable({ context, registerTool }: ToolRegistrar) {
   registerTool(
     'clickstack_table',
     {
+      permission: 'sources:read',
       title: 'Aggregation Table',
       annotations: READ_ONLY_TOOL,
       description:

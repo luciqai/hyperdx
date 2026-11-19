@@ -14,7 +14,12 @@ import {
 import Connection from '@/models/connection';
 import { LogSource, Source, SourceDocument } from '@/models/source';
 
-import { callTool, createTestClient, getFirstText } from './mcpTestUtils';
+import {
+  callTool,
+  createTestClient,
+  getFirstText,
+  MCP_TEST_ADMIN_ROLE,
+} from './mcpTestUtils';
 
 describe('log body fallback for bare-text MCP filters', () => {
   const server = getServer();
@@ -49,6 +54,7 @@ describe('log body fallback for bare-text MCP filters', () => {
     client = await createTestClient({
       teamId: team._id.toString(),
       userId: user._id.toString(),
+      role: MCP_TEST_ADMIN_ROLE,
     });
     now = Date.now();
     await bulkInsertLogs(

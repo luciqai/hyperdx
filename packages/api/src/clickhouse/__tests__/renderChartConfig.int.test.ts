@@ -2069,7 +2069,7 @@ describe('renderChartConfig', () => {
       );
     });
 
-    it('uses the first visible cumulative histogram point as the baseline', async () => {
+    it('diffs the first in-range cumulative histogram point against the sample before the range', async () => {
       const metricName = 'test.non.timeseries.histogram.boundaries';
       await bulkInsertMetricsHistogram([
         {
@@ -2136,12 +2136,13 @@ describe('renderChartConfig', () => {
           querySettings,
         );
 
-      // Only [0m, 2m] is scanned: the 0m cumulative count 4 is the zero-delta
-      // baseline, and the 1m point contributes 6 - 4 = 2. Its bucket delta is
-      // [2, 4] - [2, 2] = [0, 2], whose p50 is the finite lower boundary 10
-      // of the overflow bucket. The -1m and 3m points contribute nothing.
+      // The scan reaches back before the range, so the -1m point is the
+      // baseline: the 0m point contributes 4 - 2 = 2 and the 1m point
+      // 6 - 4 = 2. Their bucket deltas sum to [0, 4], whose p50 is the finite
+      // lower boundary 10 of the overflow bucket. The -1m point itself and
+      // the 3m point contribute nothing.
       expect(await queryData(await renderQuery({ aggFn: 'count' }))).toEqual([
-        { Value: '2' },
+        { Value: '4' },
       ]);
       expect(
         await queryData(await renderQuery({ aggFn: 'quantile', level: 0.5 })),
@@ -2467,7 +2468,7 @@ describe('renderChartConfig', () => {
       );
     });
 
-    it('uses the first visible cumulative exponential-histogram point as the baseline', async () => {
+    it('diffs the first in-range cumulative exponential-histogram point against the sample before the range', async () => {
       const metricName = 'test.non.timeseries.exponential.histogram.boundaries';
       const baseline = Array.from({ length: 10 }, () => 1024);
       await seedExponentialHistogramMetric({
@@ -2497,16 +2498,17 @@ describe('renderChartConfig', () => {
         ],
       });
 
-      // Only [0m, 2m] is scanned. The 0m cumulative count 11 is the
-      // zero-delta baseline; the 1m point contributes 12 - 11 = 1. That one
-      // new observation is 4, whose exponential bucket midpoint is sqrt(8).
-      // The 10-count -1m point and the large 3m point are outside the range.
+      // The scan reaches back before the range, so the 10-count -1m point is
+      // the baseline: the 0m point contributes 11 - 10 = 1 and the 1m point
+      // 12 - 11 = 1. Both new observations are 4, whose exponential bucket
+      // midpoint is sqrt(8). The -1m point itself and the large 3m point
+      // contribute nothing.
       expect(
         await queryCount(metricName, {
           dateRange: [new Date(now), nowPlus('2m')],
           granularity: null,
         }),
-      ).toEqual([{ Value: '1' }]);
+      ).toEqual([{ Value: '2' }]);
       expect(
         await queryQuantile(0.5, metricName, {
           dateRange: [new Date(now), nowPlus('2m')],

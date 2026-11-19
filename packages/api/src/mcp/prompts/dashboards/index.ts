@@ -17,13 +17,13 @@ import {
   getFirstSourceId,
 } from './helpers';
 
-const dashboardPrompts: PromptDefinition = (server, context) => {
+const dashboardPrompts: PromptDefinition = ({ context, registerPrompt }) => {
   const { teamId } = context;
   const promptOptions = { promql: isPromqlEnabled(context) };
 
   // ── create_dashboard ──────────────────────────────────────────────────────
 
-  server.registerPrompt(
+  registerPrompt(
     'create_dashboard',
     {
       title: 'Create a Dashboard',
@@ -39,6 +39,9 @@ const dashboardPrompts: PromptDefinition = (server, context) => {
             'What the dashboard should monitor (e.g. "API error rates and latency")',
           ),
       },
+      // Seeds its text from the team's real sources and connections, so it
+      // enumerates them (slice C §9).
+      permission: 'sources:read',
     },
     async ({ description }) => {
       let sourceSummary: string;
@@ -102,7 +105,7 @@ const dashboardPrompts: PromptDefinition = (server, context) => {
 
   // ── dashboard_examples ────────────────────────────────────────────────────
 
-  server.registerPrompt(
+  registerPrompt(
     'dashboard_examples',
     {
       title: 'Dashboard Examples',
@@ -119,6 +122,7 @@ const dashboardPrompts: PromptDefinition = (server, context) => {
             'Filter to a specific pattern: service_inventory, service_detail, log_analytics, backend_dependencies, drilldown_links, infrastructure_sql',
           ),
       },
+      permission: 'sources:read',
     },
     async ({ pattern }) => {
       let traceSourceId: string;
@@ -173,7 +177,7 @@ const dashboardPrompts: PromptDefinition = (server, context) => {
 
   // ── query_guide ───────────────────────────────────────────────────────────
 
-  server.registerPrompt(
+  registerPrompt(
     'query_guide',
     {
       title: 'Query Writing Guide',
@@ -181,6 +185,7 @@ const dashboardPrompts: PromptDefinition = (server, context) => {
         'Look up HyperDX query syntax: aggregation functions, ' +
         'Lucene/SQL filters, raw SQL macros, column naming, ' +
         `per-tile constraints, ${promptOptions.promql ? 'PromQL, ' : ''}and common mistakes.`,
+      permission: 'sources:read',
     },
     async () => {
       return {

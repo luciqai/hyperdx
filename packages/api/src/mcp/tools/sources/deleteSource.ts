@@ -16,6 +16,7 @@ export function registerDeleteSource({
   registerTool(
     'clickstack_delete_source',
     {
+      permission: 'sources:manage',
       title: 'Delete Source',
       annotations: IDEMPOTENT_DESTRUCTIVE_TOOL,
       description:

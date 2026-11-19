@@ -43,6 +43,7 @@ export function registerSaveAlert({
   registerTool(
     'clickstack_save_alert',
     {
+      permission: 'alerts:manage',
       title: 'Create or Update Alert',
       annotations: OPEN_WORLD_UPSERT_TOOL,
       description:

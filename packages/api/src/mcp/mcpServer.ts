@@ -15,8 +15,17 @@ import savedSearchesTools from './tools/savedSearches/index';
 import sourcesTools from './tools/sources/index';
 import traceTools from './tools/trace/index';
 import { McpContext } from './tools/types';
+import { assertMcpCoverage } from './utils/coverage';
+import { createVerdictGate } from './utils/permission';
 import { isPromqlEnabled } from './utils/promql';
-import { createRegisterTool } from './utils/registerTool';
+import {
+  createRegisterPrompt,
+  type DeclaredPrompts,
+} from './utils/registerPrompt';
+import {
+  createRegisterTool,
+  type DeclaredPermissions,
+} from './utils/registerTool';
 
 const SERVER_INSTRUCTIONS = [
   'ClickStack observability MCP server for querying logs, metrics, traces, and',
@@ -77,7 +86,22 @@ export function createServer(context: McpContext) {
     instructions: serverInstructions(context),
   });
 
-  const registerTool = createRegisterTool(server, context);
+  const declaredTools: DeclaredPermissions = new Map();
+  const declaredPrompts: DeclaredPrompts = new Map();
+
+  // One gate for the whole request. This function runs once per HTTP POST, so
+  // sharing it is what keeps `hyperdx.rbac.missing_role` at exactly one
+  // increment per request that consults a permission — and zero for
+  // `initialize`, `ping` and `tools/list`, which consult none. See
+  // createVerdictGate.
+  const gate = createVerdictGate(context);
+  const registerTool = createRegisterTool(server, context, declaredTools, gate);
+  const registerPrompt = createRegisterPrompt(
+    server,
+    context,
+    declaredPrompts,
+    gate,
+  );
   const registrar = { server, context, registerTool };
 
   sourcesTools(registrar);
@@ -86,7 +110,13 @@ export function createServer(context: McpContext) {
   queryTools(registrar);
   savedSearchesTools(registrar);
   traceTools(registrar);
-  dashboardPrompts(server, context);
+  dashboardPrompts({ server, context, registerPrompt });
+
+  // Every tool AND prompt must declare a permission. A new one that forgets
+  // fails here rather than shipping ungated — the runtime half of the
+  // guarantee. Prompts are included because SEC-1 was exactly a prompt
+  // surface that this assertion could not see.
+  assertMcpCoverage(server, declaredTools, declaredPrompts);
 
   return server;
 }
