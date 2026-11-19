@@ -87,10 +87,30 @@ describe('SourcesList section display', () => {
       'Traces',
       'OTel metrics',
       'Sessions',
-      'PromQL',
+      'Time Series / Prometheus',
     ]) {
       expect(screen.getByText(label)).toBeInTheDocument();
     }
+  });
+
+  it('keeps the combined label on a PromQL source, whatever its connection', () => {
+    // This list does not read connections, so it cannot tell a ClickHouse
+    // TimeSeries table from a Prometheus endpoint.
+    asMock(useSources).mockReturnValue({
+      data: [
+        makeSource('a', 'A', { kind: SourceKind.Promql }),
+        makeSource('b', 'B', {
+          kind: SourceKind.Promql,
+          connection: 'conn-prom',
+        }),
+      ],
+      isLoading: false,
+      refetch: jest.fn(),
+    });
+    renderWithMantine(<SourcesList withCard={false} />);
+
+    expect(screen.getAllByText('Time Series / Prometheus')).toHaveLength(2);
+    expect(screen.queryByText('Prometheus')).not.toBeInTheDocument();
   });
 
   it('renders the connection name inlined by GET /sources', () => {

@@ -165,6 +165,13 @@ describe('MCP Trace Tools', () => {
   // ─── Schema serialization ──────────────────────────────────────────────────
 
   describe('schema serialization', () => {
+    // Some MCP clients cap tool name length, often after prefixing the server name.
+    it('should keep every tool name within 40 characters', async () => {
+      const { tools } = await client.listTools();
+      const tooLong = tools.map(t => t.name).filter(name => name.length > 40);
+      expect(tooLong).toEqual([]);
+    });
+
     it('should expose clickstack_trace_waterfall with expected properties', async () => {
       const { tools } = await client.listTools();
       const tool = tools.find(t => t.name === 'clickstack_trace_waterfall');
@@ -180,10 +187,10 @@ describe('MCP Trace Tools', () => {
       expect(tool!.inputSchema.required).toContain('sourceId');
     });
 
-    it('should expose clickstack_trace_top_time_consuming_operations with expected properties', async () => {
+    it('should expose clickstack_trace_top_time_consuming_ops with expected properties', async () => {
       const { tools } = await client.listTools();
       const tool = tools.find(
-        t => t.name === 'clickstack_trace_top_time_consuming_operations',
+        t => t.name === 'clickstack_trace_top_time_consuming_ops',
       );
       expect(tool).toBeDefined();
 
@@ -1056,13 +1063,13 @@ describe('MCP Trace Tools', () => {
     });
   });
 
-  // ─── clickstack_trace_top_time_consuming_operations ───────────────────────────
+  // ─── clickstack_trace_top_time_consuming_ops ───────────────────────────
 
-  describe('clickstack_trace_top_time_consuming_operations', () => {
+  describe('clickstack_trace_top_time_consuming_ops', () => {
     it('should return error for non-existent source', async () => {
       const result = await callTool(
         client,
-        'clickstack_trace_top_time_consuming_operations',
+        'clickstack_trace_top_time_consuming_ops',
         {
           sourceId: '000000000000000000000000',
           parentFilter: "ServiceName = 'api-gateway'",
@@ -1077,7 +1084,7 @@ describe('MCP Trace Tools', () => {
     it('should return error for non-trace source', async () => {
       const result = await callTool(
         client,
-        'clickstack_trace_top_time_consuming_operations',
+        'clickstack_trace_top_time_consuming_ops',
         {
           sourceId: logSource._id.toString(),
           parentFilter: "ServiceName = 'api-gateway'",
@@ -1092,7 +1099,7 @@ describe('MCP Trace Tools', () => {
     it('should return error for invalid time range', async () => {
       const result = await callTool(
         client,
-        'clickstack_trace_top_time_consuming_operations',
+        'clickstack_trace_top_time_consuming_ops',
         {
           sourceId: traceSource._id.toString(),
           parentFilter: "ServiceName = 'api-gateway'",
@@ -1107,7 +1114,7 @@ describe('MCP Trace Tools', () => {
     it('should return empty operations when no traces match', async () => {
       const result = await callTool(
         client,
-        'clickstack_trace_top_time_consuming_operations',
+        'clickstack_trace_top_time_consuming_ops',
         {
           sourceId: traceSource._id.toString(),
           parentFilter: "ServiceName = 'nonexistent-service'",
@@ -1214,7 +1221,7 @@ describe('MCP Trace Tools', () => {
       it('should break down child operations ranked by total time', async () => {
         const result = await callTool(
           client,
-          'clickstack_trace_top_time_consuming_operations',
+          'clickstack_trace_top_time_consuming_ops',
           {
             sourceId: traceSource._id.toString(),
             parentFilter: `ServiceName = '${PARENT_SVC}' AND SpanName = '${PARENT_OP}'`,
@@ -1251,7 +1258,7 @@ describe('MCP Trace Tools', () => {
         // Only trace 2 has a parent >= 850ms (900ms)
         const result = await callTool(
           client,
-          'clickstack_trace_top_time_consuming_operations',
+          'clickstack_trace_top_time_consuming_ops',
           {
             sourceId: traceSource._id.toString(),
             parentFilter: `ServiceName = '${PARENT_SVC}' AND SpanName = '${PARENT_OP}'`,
@@ -1276,7 +1283,7 @@ describe('MCP Trace Tools', () => {
       it('should respect topN parameter', async () => {
         const result = await callTool(
           client,
-          'clickstack_trace_top_time_consuming_operations',
+          'clickstack_trace_top_time_consuming_ops',
           {
             sourceId: traceSource._id.toString(),
             parentFilter: `ServiceName = '${PARENT_SVC}' AND SpanName = '${PARENT_OP}'`,
@@ -1301,7 +1308,7 @@ describe('MCP Trace Tools', () => {
 
         const result = await callTool(
           client,
-          'clickstack_trace_top_time_consuming_operations',
+          'clickstack_trace_top_time_consuming_ops',
           {
             sourceId: traceSource._id.toString(),
             parentFilter: `ServiceName = '${PARENT_SVC}' AND SpanName = '${PARENT_OP}'`,
@@ -1326,7 +1333,7 @@ describe('MCP Trace Tools', () => {
 
         const result = await callTool(
           client,
-          'clickstack_trace_top_time_consuming_operations',
+          'clickstack_trace_top_time_consuming_ops',
           {
             sourceId: traceSource._id.toString(),
             parentFilter: `ServiceName = '${PARENT_SVC}' AND SpanName = '${PARENT_OP}'`,
@@ -1346,7 +1353,7 @@ describe('MCP Trace Tools', () => {
       it('should return error for invalid parentFilter SQL', async () => {
         const result = await callTool(
           client,
-          'clickstack_trace_top_time_consuming_operations',
+          'clickstack_trace_top_time_consuming_ops',
           {
             sourceId: traceSource._id.toString(),
             parentFilter: 'INVALID SQL @@@ SYNTAX',
@@ -1376,7 +1383,7 @@ describe('MCP Trace Tools', () => {
         try {
           const result = await callTool(
             client,
-            'clickstack_trace_top_time_consuming_operations',
+            'clickstack_trace_top_time_consuming_ops',
             {
               sourceId: traceSource._id.toString(),
               parentFilter: `ServiceName = '${PARENT_SVC}' AND SpanName = '${PARENT_OP}'`,
@@ -1444,7 +1451,7 @@ describe('MCP Trace Tools', () => {
         try {
           const result = await callTool(
             client,
-            'clickstack_trace_top_time_consuming_operations',
+            'clickstack_trace_top_time_consuming_ops',
             {
               sourceId: traceSource._id.toString(),
               parentFilter: `ServiceName = '${PARENT_SVC}' AND SpanName = '${PARENT_OP}'`,

@@ -30,7 +30,7 @@ import { IS_LOCAL_MODE } from '@/config';
 import { useMyPermissions } from '@/hooks/useMyPermissions';
 import { useSources } from '@/source';
 
-import { SOURCE_KIND_LABELS } from './SourceForm/constants';
+import { getSourceKindLabel } from './SourceForm/constants';
 import { TableSourceForm } from './SourceForm';
 
 import styles from './Sources.module.scss';
@@ -211,7 +211,10 @@ export function SourcesList({
                 </Group>
                 <Text size={subtextSize} c="dimmed" mt={4}>
                   <Group gap="xs">
-                    {SOURCE_KIND_LABELS[s.kind]}
+                    {/* No connection is passed: this list does not read
+                        connections (see the permissions note above), so a
+                        PromQL source keeps the combined label here. */}
+                    {getSourceKindLabel(s.kind)}
                     {s.section && (
                       <Group gap={4}>
                         <IconFolder size={iconSize} />

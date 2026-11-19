@@ -12,6 +12,11 @@ jest.mock('@/models', () => ({
 }));
 jest.mock('@/opamp/app', () => ({ __esModule: true, default: jest.fn() }));
 jest.mock('@/setupDefaults', () => ({ setupTeamDefaults: jest.fn() }));
+// The fork's startup also bootstraps RBAC roles, which needs MongoDB.
+jest.mock('@/utils/rbacStartup', () => ({
+  bootstrapRbacRoles: jest.fn(),
+  warnOnRoleLessUsers: jest.fn(),
+}));
 jest.mock('@/utils/tokenEncryption', () => ({
   verifyTokenEncryption: jest.fn(),
 }));

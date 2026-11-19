@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+
 import { parseAllowedDomains } from '@/utils/googleAuth';
 
 const env = process.env;

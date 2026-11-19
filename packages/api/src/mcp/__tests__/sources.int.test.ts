@@ -1458,6 +1458,8 @@ describe('MCP Source Tools', () => {
         // unwritable through save_source).
         useTextIndexForImplicitColumn: 'enabled',
         knownColumnsListExpression: 'TraceId, SpanId',
+        rowKeyExpression:
+          'ServiceName, Timestamp, _block_number, _block_offset',
         sampleRateExpression: 'SampleRate',
         highlightedTraceAttributeExpressions: [
           { sqlExpression: "SpanAttributes['http.method']", alias: 'method' },
@@ -1487,6 +1489,9 @@ describe('MCP Source Tools', () => {
       // Advanced fields surface too.
       expect(config.useTextIndexForImplicitColumn).toBe('enabled');
       expect(config.knownColumnsListExpression).toBe('TraceId, SpanId');
+      expect(config.rowKeyExpression).toBe(
+        'ServiceName, Timestamp, _block_number, _block_offset',
+      );
       expect(config.sampleRateExpression).toBe('SampleRate');
       expect(config.highlightedTraceAttributeExpressions).toEqual([
         { sqlExpression: "SpanAttributes['http.method']", alias: 'method' },
@@ -1521,6 +1526,9 @@ describe('MCP Source Tools', () => {
       );
       expect(stored?.get('useTextIndexForImplicitColumn')).toBe('enabled');
       expect(stored?.get('sampleRateExpression')).toBe('SampleRate');
+      expect(stored?.get('rowKeyExpression')).toBe(
+        'ServiceName, Timestamp, _block_number, _block_offset',
+      );
 
       // 4. describe the clone: advanced config round-trips identically.
       const describedClone = await callTool(

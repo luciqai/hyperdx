@@ -15,7 +15,7 @@ jest.mock('@/config', () => ({
     },
     {
       kind: 'promql',
-      name: 'PromQL',
+      name: 'Time Series',
       connection: 'Local ClickHouse',
       from: { databaseName: 'default', tableName: 'metrics_ts' },
       timestampValueExpression: 'timestamp',
@@ -38,6 +38,8 @@ jest.mock('@/controllers/connection', () => ({
       { _id: 'conn-1', team: 'team-1', name: 'Local ClickHouse' },
     ]),
 }));
+// The fork seeds system roles first; that write is not what this suite tests.
+jest.mock('@/controllers/role', () => ({ seedSystemRoles: jest.fn() }));
 jest.mock('@/controllers/sources', () => ({
   getSources: jest.fn().mockResolvedValue([]),
   createSource: jest.fn(async (_teamId: string, source: { name: string }) => ({
